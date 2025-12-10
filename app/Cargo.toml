@@ -1,0 +1,82 @@
+[package]
+name = "oxide-launcher"
+version = "0.1.0"
+edition = "2021"
+authors = ["OxideLauncher Contributors"]
+description = "A Rust-based Minecraft launcher inspired by Prism Launcher"
+license = "GPL-3.0-only"
+repository = "https://github.com/oxide-launcher/oxide-launcher"
+keywords = ["minecraft", "launcher", "game"]
+categories = ["games"]
+
+[dependencies]
+# GUI Framework
+iced = { version = "0.14", features = ["tokio", "image", "svg", "lazy", "canvas", "qr_code", "advanced"] }
+
+# Async Runtime
+tokio = { version = "1", features = ["full"] }
+
+# Networking
+reqwest = { version = "0.12", features = ["json", "stream"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# File system
+dirs = "5"
+walkdir = "2"
+tempfile = "3"
+zip = "2"
+fs_extra = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Utilities
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+once_cell = "1"
+parking_lot = "0.12"
+sha1 = "0.10"
+sha2 = "0.10"
+base64 = "0.22"
+url = { version = "2", features = ["serde"] }
+bytes = "1"
+futures = "0.3"
+async-trait = "0.1"
+open = "5"
+webbrowser = "1"
+semver = { version = "1", features = ["serde"] }
+regex = "1"
+
+# Image processing
+image = "0.25"
+
+# Process management
+which = "7"
+
+# Platform specific
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+plist = "1"
+
+[profile.release]
+lto = true
+opt-level = 3
+codegen-units = 1
+
+[profile.dev]
+opt-level = 1
+
+[[bin]]
+name = "oxide-launcher"
+path = "src/main.rs"
