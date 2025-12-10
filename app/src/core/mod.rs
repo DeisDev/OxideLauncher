@@ -8,6 +8,7 @@ pub mod instance;
 pub mod accounts;
 pub mod minecraft;
 pub mod modplatform;
+pub mod modloaders;
 pub mod download;
 pub mod launch;
 pub mod java;

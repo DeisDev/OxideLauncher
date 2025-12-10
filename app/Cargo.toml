@@ -10,19 +10,20 @@ keywords = ["minecraft", "launcher", "game"]
 categories = ["games"]
 
 [dependencies]
-# GUI Framework
-iced = { version = "0.14", features = ["tokio", "image", "svg", "lazy", "canvas", "qr_code", "advanced"] }
+# Tauri Framework
+tauri = { version = "2.1", features = [] }
+tauri-plugin-shell = "2.1"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
 
 # Async Runtime
 tokio = { version = "1", features = ["full"] }
 
 # Networking
 reqwest = { version = "0.12", features = ["json", "stream"] }
-
-# Serialization
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-toml = "0.8"
 
 # File system
 dirs = "5"
@@ -62,6 +63,9 @@ image = "0.25"
 # Process management
 which = "7"
 
+[build-dependencies]
+tauri-build = { version = "2.1", features = [] }
+
 # Platform specific
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
@@ -76,7 +80,3 @@ codegen-units = 1
 
 [profile.dev]
 opt-level = 1
-
-[[bin]]
-name = "oxide-launcher"
-path = "src/main.rs"

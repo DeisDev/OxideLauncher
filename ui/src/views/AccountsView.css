@@ -1,0 +1,150 @@
+.accounts-view {
+  max-width: 900px;
+}
+
+.accounts-view .header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 32px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.accounts-view .header h1 {
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+}
+
+.accounts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.account-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  transition: all 0.2s ease;
+  box-shadow: var(--shadow-md);
+}
+
+.account-card:hover {
+  border-color: var(--border-color);
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-2px);
+}
+
+.account-card.active {
+  border-color: var(--accent-primary);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, transparent 100%);
+  box-shadow: 0 0 0 1px var(--accent-primary), var(--shadow-lg);
+}
+
+.account-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.account-info h3 {
+  font-size: 18px;
+  margin: 0;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.account-type {
+  font-size: 14px;
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+
+.active-badge {
+  display: inline-block;
+  background: linear-gradient(135deg, var(--success) 0%, var(--success-hover) 100%);
+  color: white;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: 6px;
+  width: fit-content;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+}
+
+.account-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.account-actions button {
+  padding: 10px 18px;
+  font-size: 14px;
+}
+
+.dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease;
+}
+
+.dialog {
+  min-width: 450px;
+  padding: 32px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xl);
+  animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.dialog h2 {
+  margin-bottom: 24px;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.dialog input {
+  width: 100%;
+  padding: 12px 16px;
+  font-size: 15px;
+}
+
+.dialog .form-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+  justify-content: flex-end;
+}
+
+.dialog .form-actions button {
+  min-width: 100px;
+}

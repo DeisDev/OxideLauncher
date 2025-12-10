@@ -1,3 +1,7 @@
 /reference
 /target
 /app/target
+/ui/node_modules
+/app/icons/ios
+/app/icons/android
+/app/icons

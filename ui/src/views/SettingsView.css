@@ -1,0 +1,75 @@
+.settings-view {
+  max-width: 900px;
+}
+
+.settings-view h1 {
+  margin-bottom: 32px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+}
+
+.settings-view h2 {
+  margin-bottom: 20px;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-view h2::before {
+  content: '';
+  width: 4px;
+  height: 20px;
+  background: linear-gradient(135deg, var(--accent-primary) 0%, #8b5cf6 100%);
+  border-radius: 2px;
+}
+
+.settings-view .card {
+  margin-bottom: 24px;
+  padding: 28px;
+  transition: all 0.2s ease;
+}
+
+.settings-view .card:hover {
+  border-color: var(--border-color);
+}
+
+.form-group {
+  margin-bottom: 24px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 10px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+  letter-spacing: 0.3px;
+}
+
+.form-group input,
+.form-group select {
+  width: 100%;
+  padding: 12px 16px;
+  font-size: 15px;
+}
+
+.save-section {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.save-section button {
+  min-width: 140px;
+  padding: 12px 28px;
+  font-size: 15px;
+  font-weight: 600;
+}
