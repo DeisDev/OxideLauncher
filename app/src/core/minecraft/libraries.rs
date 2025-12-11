@@ -1,8 +1,7 @@
 //! Library management for Minecraft
 
 use std::path::PathBuf;
-use crate::core::minecraft::version::{Library, VersionData, current_os_name};
-use crate::core::error::Result;
+use crate::core::minecraft::version::{Library, VersionData};
 
 /// Get all libraries needed for a version
 pub fn get_required_libraries(version: &VersionData) -> Vec<&Library> {
@@ -90,7 +89,7 @@ pub fn get_missing_libraries(
 /// Get native libraries that need to be extracted
 pub fn get_native_libraries(
     version: &VersionData,
-    libraries_dir: &PathBuf,
+    _libraries_dir: &PathBuf,
 ) -> Vec<NativeLibrary> {
     get_required_libraries(version)
         .iter()
@@ -127,6 +126,7 @@ pub fn get_native_libraries(
 }
 
 /// Information about a library to download
+#[allow(dead_code)] // Used in library download pipeline
 #[derive(Debug, Clone)]
 pub struct LibraryDownload {
     pub name: String,
@@ -137,6 +137,7 @@ pub struct LibraryDownload {
 }
 
 /// Information about a native library
+#[allow(dead_code)] // Used in native extraction pipeline
 #[derive(Debug, Clone)]
 pub struct NativeLibrary {
     pub name: String,

@@ -1,6 +1,19 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import "./SettingsView.css";
+import { Save } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface Config {
   java: {
@@ -16,6 +29,7 @@ interface Config {
 export function SettingsView() {
   const [config, setConfig] = useState<Config | null>(null);
   const [loading, setLoading] = useState(true);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   useEffect(() => {
     loadConfig();
@@ -36,10 +50,9 @@ export function SettingsView() {
     if (!config) return;
     try {
       await invoke("update_config", { config });
-      alert("Settings saved successfully!");
+      setSaveSuccess(true);
     } catch (error) {
       console.error("Failed to save config:", error);
-      alert("Failed to save settings");
     }
   };
 
@@ -52,84 +65,130 @@ export function SettingsView() {
   }
 
   return (
-    <div className="settings-view">
-      <h1>Settings</h1>
+    <div className="max-w-3xl mx-auto">
+      <h1 className="text-3xl font-bold mb-8">Settings</h1>
 
-      <div className="card">
-        <h2>Java Settings</h2>
-        <div className="form-group">
-          <label htmlFor="javaPath">Custom Java Path (optional)</label>
-          <input
-            id="javaPath"
-            type="text"
-            value={config.java.custom_path || ""}
-            onChange={(e) =>
-              setConfig({
-                ...config,
-                java: { ...config.java, custom_path: e.target.value || null },
-              })
-            }
-            placeholder="/path/to/java"
-          />
-        </div>
-        <div className="form-group">
-          <label htmlFor="javaArgs">Extra Java Arguments</label>
-          <input
-            id="javaArgs"
-            type="text"
-            value={config.java.extra_args}
-            onChange={(e) =>
-              setConfig({
-                ...config,
-                java: { ...config.java, extra_args: e.target.value },
-              })
-            }
-            placeholder="-XX:+UseG1GC"
-          />
+      <div className="space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Java Settings</CardTitle>
+            <CardDescription>
+              Configure Java runtime settings for Minecraft.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="javaPath">Custom Java Path (optional)</Label>
+              <Input
+                id="javaPath"
+                value={config.java.custom_path || ""}
+                onChange={(e) =>
+                  setConfig({
+                    ...config,
+                    java: { ...config.java, custom_path: e.target.value || null },
+                  })
+                }
+                placeholder="/path/to/java"
+              />
+              <p className="text-sm text-muted-foreground">
+                Leave empty to auto-detect Java installation.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="javaArgs">Extra Java Arguments</Label>
+              <Input
+                id="javaArgs"
+                value={config.java.extra_args}
+                onChange={(e) =>
+                  setConfig({
+                    ...config,
+                    java: { ...config.java, extra_args: e.target.value },
+                  })
+                }
+                placeholder="-XX:+UseG1GC"
+              />
+              <p className="text-sm text-muted-foreground">
+                Additional JVM arguments passed to Minecraft.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Memory Settings</CardTitle>
+            <CardDescription>
+              Configure how much RAM Minecraft can use.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="minMemory">Minimum Memory (MB)</Label>
+                <Input
+                  id="minMemory"
+                  type="number"
+                  value={config.memory.min_memory}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      memory: {
+                        ...config.memory,
+                        min_memory: parseInt(e.target.value) || 512,
+                      },
+                    })
+                  }
+                  min="512"
+                  max="32768"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="maxMemory">Maximum Memory (MB)</Label>
+                <Input
+                  id="maxMemory"
+                  type="number"
+                  value={config.memory.max_memory}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      memory: {
+                        ...config.memory,
+                        max_memory: parseInt(e.target.value) || 4096,
+                      },
+                    })
+                  }
+                  min="1024"
+                  max="32768"
+                />
+              </div>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Recommended: Set maximum memory to half of your system RAM.
+            </p>
+          </CardContent>
+        </Card>
+
+        <div className="flex justify-end pt-4">
+          <Button onClick={saveConfig} size="lg">
+            <Save className="mr-2 h-4 w-4" /> Save Settings
+          </Button>
         </div>
       </div>
 
-      <div className="card">
-        <h2>Memory Settings</h2>
-        <div className="form-group">
-          <label htmlFor="minMemory">Minimum Memory (MB)</label>
-          <input
-            id="minMemory"
-            type="number"
-            value={config.memory.min_memory}
-            onChange={(e) =>
-              setConfig({
-                ...config,
-                memory: { ...config.memory, min_memory: parseInt(e.target.value) },
-              })
-            }
-            min="512"
-            max="32768"
-          />
-        </div>
-        <div className="form-group">
-          <label htmlFor="maxMemory">Maximum Memory (MB)</label>
-          <input
-            id="maxMemory"
-            type="number"
-            value={config.memory.max_memory}
-            onChange={(e) =>
-              setConfig({
-                ...config,
-                memory: { ...config.memory, max_memory: parseInt(e.target.value) },
-              })
-            }
-            min="1024"
-            max="32768"
-          />
-        </div>
-      </div>
-
-      <div className="save-section">
-        <button onClick={saveConfig} className="btn-success">
-          Save Settings
-        </button>
-      </div>
+      {/* Save Success Dialog */}
+      <AlertDialog open={saveSuccess} onOpenChange={setSaveSuccess}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Settings Saved</AlertDialogTitle>
+            <AlertDialogDescription>
+              Your settings have been saved successfully.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction>OK</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

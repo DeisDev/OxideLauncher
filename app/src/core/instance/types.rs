@@ -1,5 +1,7 @@
 //! Instance data types
 
+#![allow(dead_code)] // Types will be used as features are completed
+
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use chrono::{DateTime, Utc};
@@ -55,6 +57,7 @@ pub struct Instance {
     pub status: InstanceStatus,
 }
 
+#[allow(dead_code)] // Helper methods will be used as features are completed
 impl Instance {
     /// Create a new instance with default settings
     pub fn new(name: String, path: PathBuf, minecraft_version: String) -> Self {

@@ -1,7 +1,9 @@
 //! Account list management
 
+#![allow(dead_code)] // List management will be used as features are completed
+
 use std::path::PathBuf;
-use crate::core::error::{OxideError, Result};
+use crate::core::error::Result;
 use super::Account;
 
 /// List of all accounts

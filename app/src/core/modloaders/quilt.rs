@@ -1,5 +1,7 @@
 //! Quilt version API client
 
+#![allow(dead_code)] // Recommended version will be used as features are completed
+
 use serde::{Deserialize, Serialize};
 use crate::core::error::Result;
 

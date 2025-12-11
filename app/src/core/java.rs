@@ -1,5 +1,7 @@
 //! Java detection and management
 
+#![allow(dead_code)] // Java detection will be used in launch pipeline
+
 use std::path::PathBuf;
 
 /// Find a Java installation with the required major version

@@ -1,14 +1,39 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { 
-  faPlus, faPlay, faTrash, faInfoCircle, faCube, faPencil,
-  faFolder, faCopy, faFileExport, faImage, faExclamationTriangle, faCog,
-  faStop, faObjectGroup, faLink
-} from "@fortawesome/free-solid-svg-icons";
-import { ContextMenu, ContextMenuItem } from "../components/ContextMenu";
-import "./InstancesView.css";
+import {
+  Plus, Play, Trash2, Info, Box, Pencil, Folder, Copy, FileOutput,
+  Image, Settings, Square, FolderTree, Link as LinkIcon
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 interface InstanceInfo {
   id: string;
@@ -25,14 +50,13 @@ export function InstancesView() {
   const navigate = useNavigate();
   const [instances, setInstances] = useState<InstanceInfo[]>([]);
   const [loading, setLoading] = useState(true);
-  const [contextMenu, setContextMenu] = useState<{
-    x: number;
-    y: number;
-    instanceId: string;
-  } | null>(null);
-  const [showRenameDialog, setShowRenameDialog] = useState<string | null>(null);
+  
+  // Dialog states
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false);
+  const [groupDialogOpen, setGroupDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [selectedInstance, setSelectedInstance] = useState<string | null>(null);
   const [renameName, setRenameName] = useState("");
-  const [showGroupDialog, setShowGroupDialog] = useState<string | null>(null);
   const [groupName, setGroupName] = useState("");
 
   useEffect(() => {
@@ -58,46 +82,34 @@ export function InstancesView() {
     }
   };
 
-  const deleteInstance = async (id: string) => {
-    if (confirm("Are you sure you want to delete this instance?")) {
-      try {
-        await invoke("delete_instance", { instanceId: id });
-        loadInstances();
-      } catch (error) {
-        console.error("Failed to delete instance:", error);
-      }
+  const handleDelete = async () => {
+    if (!selectedInstance) return;
+    try {
+      await invoke("delete_instance", { instanceId: selectedInstance });
+      loadInstances();
+    } catch (error) {
+      console.error("Failed to delete instance:", error);
+    } finally {
+      setDeleteDialogOpen(false);
+      setSelectedInstance(null);
     }
   };
 
-  const handleContextMenu = (e: React.MouseEvent, instanceId: string) => {
-    e.preventDefault();
-    setContextMenu({
-      x: e.clientX,
-      y: e.clientY,
-      instanceId,
-    });
-  };
-
-  const handleRename = async (instanceId: string) => {
-    if (!renameName.trim()) return;
-    
+  const handleRename = async () => {
+    if (!selectedInstance || !renameName.trim()) return;
     try {
       await invoke("rename_instance", {
-        instanceId,
+        instanceId: selectedInstance,
         newName: renameName,
       });
-      setShowRenameDialog(null);
-      setRenameName("");
       loadInstances();
     } catch (error) {
       console.error("Failed to rename instance:", error);
-      alert("Failed to rename instance");
+    } finally {
+      setRenameDialogOpen(false);
+      setSelectedInstance(null);
+      setRenameName("");
     }
-  };
-
-  const handleChangeIcon = async (instanceId: string) => {
-    // TODO: Implement icon picker
-    alert("Icon picker not implemented yet. This would show a grid of default icons and allow custom uploads.");
   };
 
   const handleCopy = async (instanceId: string) => {
@@ -106,24 +118,23 @@ export function InstancesView() {
       loadInstances();
     } catch (error) {
       console.error("Failed to copy instance:", error);
-      alert("Failed to copy instance");
     }
   };
 
-  const handleChangeGroup = async (instanceId: string) => {
-    if (!groupName.trim()) return;
-    
+  const handleChangeGroup = async () => {
+    if (!selectedInstance) return;
     try {
       await invoke("change_instance_group", {
-        instanceId,
+        instanceId: selectedInstance,
         group: groupName || null,
       });
-      setShowGroupDialog(null);
-      setGroupName("");
       loadInstances();
     } catch (error) {
       console.error("Failed to change group:", error);
-      alert("Failed to change group");
+    } finally {
+      setGroupDialogOpen(false);
+      setSelectedInstance(null);
+      setGroupName("");
     }
   };
 
@@ -132,13 +143,7 @@ export function InstancesView() {
       await invoke("open_instance_folder", { instanceId });
     } catch (error) {
       console.error("Failed to open folder:", error);
-      alert("Failed to open folder");
     }
-  };
-
-  const handleExport = async (instanceId: string) => {
-    // TODO: Implement file picker for export location
-    alert("Export functionality requires file picker integration. This would let you choose where to save the .zip");
   };
 
   const handleCreateShortcut = async (instanceId: string) => {
@@ -146,7 +151,6 @@ export function InstancesView() {
       await invoke("create_instance_shortcut", { instanceId });
     } catch (error) {
       console.error("Failed to create shortcut:", error);
-      alert(String(error));
     }
   };
 
@@ -155,80 +159,24 @@ export function InstancesView() {
       await invoke("kill_instance", { instanceId });
     } catch (error) {
       console.error("Failed to kill instance:", error);
-      alert("Failed to kill instance");
     }
   };
 
-  const getContextMenuItems = (instanceId: string): ContextMenuItem[] => {
-    return [
-      {
-        icon: faPlay,
-        label: "Launch",
-        action: () => launchInstance(instanceId),
-      },
-      {
-        icon: faStop,
-        label: "Kill",
-        action: () => handleKill(instanceId),
-      },
-      { divider: true } as ContextMenuItem,
-      {
-        icon: faPencil,
-        label: "Rename",
-        action: () => {
-          const instance = instances.find(i => i.id === instanceId);
-          setRenameName(instance?.name || "");
-          setShowRenameDialog(instanceId);
-        },
-      },
-      {
-        icon: faImage,
-        label: "Change Icon",
-        action: () => handleChangeIcon(instanceId),
-      },
-      {
-        icon: faCog,
-        label: "Edit...",
-        action: () => navigate(`/instance/${instanceId}`),
-      },
-      {
-        icon: faObjectGroup,
-        label: "Change Group...",
-        action: () => {
-          const instance = instances.find(i => i.id === instanceId);
-          setGroupName(instance?.group || "");
-          setShowGroupDialog(instanceId);
-        },
-      },
-      { divider: true } as ContextMenuItem,
-      {
-        icon: faFolder,
-        label: "Folder",
-        action: () => handleOpenFolder(instanceId),
-      },
-      {
-        icon: faFileExport,
-        label: "Export",
-        action: () => handleExport(instanceId),
-      },
-      {
-        icon: faCopy,
-        label: "Copy",
-        action: () => handleCopy(instanceId),
-      },
-      {
-        icon: faLink,
-        label: "Create Shortcut",
-        action: () => handleCreateShortcut(instanceId),
-      },
-      { divider: true } as ContextMenuItem,
-      {
-        icon: faTrash,
-        label: "Delete",
-        action: () => deleteInstance(instanceId),
-        danger: true,
-      },
-    ];
+  const openRenameDialog = (instance: InstanceInfo) => {
+    setSelectedInstance(instance.id);
+    setRenameName(instance.name);
+    setRenameDialogOpen(true);
+  };
+
+  const openGroupDialog = (instance: InstanceInfo) => {
+    setSelectedInstance(instance.id);
+    setGroupName(instance.group || "");
+    setGroupDialogOpen(true);
+  };
+
+  const openDeleteDialog = (instanceId: string) => {
+    setSelectedInstance(instanceId);
+    setDeleteDialogOpen(true);
   };
 
   if (loading) {
@@ -236,134 +184,224 @@ export function InstancesView() {
   }
 
   return (
-    <div className="instances-view">
-      <div className="header">
-        <h1>Minecraft Instances</h1>
+    <div className="max-w-[1600px] mx-auto">
+      <div className="flex justify-between items-center mb-8 pb-5 border-b border-border">
+        <h1 className="text-3xl font-bold bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
+          Minecraft Instances
+        </h1>
         <Link to="/create-instance">
-          <button className="btn-success">
-            <FontAwesomeIcon icon={faPlus} /> Create Instance
-          </button>
+          <Button>
+            <Plus className="mr-2 h-4 w-4" /> Create Instance
+          </Button>
         </Link>
       </div>
 
       {instances.length === 0 ? (
         <div className="empty-state">
-          <p>No instances found. Create your first instance to get started!</p>
+          <p className="mb-4">No instances found. Create your first instance to get started!</p>
           <Link to="/create-instance">
-            <button className="btn-success">
-              <FontAwesomeIcon icon={faPlus} /> Create Instance
-            </button>
+            <Button>
+              <Plus className="mr-2 h-4 w-4" /> Create Instance
+            </Button>
           </Link>
         </div>
       ) : (
-        <div className="instances-grid">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-6">
           {instances.map((instance) => (
-            <div 
-              key={instance.id} 
-              className="instance-card card"
-              onContextMenu={(e) => handleContextMenu(e, instance.id)}
-            >
-              <div className="instance-icon">
-                {instance.icon ? (
-                  <img src={instance.icon} alt={instance.name} />
-                ) : (
-                  <div className="default-icon">
-                    <FontAwesomeIcon icon={faCube} size="3x" />
+            <ContextMenu key={instance.id}>
+              <ContextMenuTrigger>
+                <Card className="overflow-hidden cursor-pointer transition-all hover:-translate-y-1 hover:shadow-xl hover:border-primary/50">
+                  <div className="h-44 flex items-center justify-center bg-gradient-to-br from-muted to-card overflow-hidden">
+                    {instance.icon ? (
+                      <img
+                        src={instance.icon}
+                        alt={instance.name}
+                        className="w-full h-full object-cover transition-transform hover:scale-105"
+                      />
+                    ) : (
+                      <Box className="h-14 w-14 text-muted-foreground" />
+                    )}
                   </div>
-                )}
-              </div>
-              <div className="instance-info">
-                <h3>{instance.name}</h3>
-                <p className="version">Minecraft {instance.minecraft_version}</p>
-                <p className="mod-loader">{instance.mod_loader}</p>
-                {instance.last_played && (
-                  <p className="last-played">
-                    Last played: {new Date(instance.last_played).toLocaleDateString()}
-                  </p>
-                )}
-              </div>
-              <div className="instance-actions">
-                <button onClick={() => launchInstance(instance.id)} className="btn-success">
-                  <FontAwesomeIcon icon={faPlay} /> Launch
-                </button>
-                <Link to={`/instance/${instance.id}`}>
-                  <button className="btn-secondary">
-                    <FontAwesomeIcon icon={faInfoCircle} />
-                  </button>
-                </Link>
-                <button onClick={() => deleteInstance(instance.id)} className="btn-danger">
-                  <FontAwesomeIcon icon={faTrash} />
-                </button>
-              </div>
-            </div>
+                  <CardContent className="p-5">
+                    <h3 className="font-semibold text-lg mb-1">{instance.name}</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Minecraft {instance.minecraft_version}
+                    </p>
+                    <p className="text-sm text-muted-foreground mb-3">
+                      {instance.mod_loader}
+                    </p>
+                    {instance.last_played && (
+                      <p className="text-xs text-muted-foreground">
+                        Last played: {new Date(instance.last_played).toLocaleDateString()}
+                      </p>
+                    )}
+                    <div className="flex gap-2 mt-4">
+                      <Button
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          launchInstance(instance.id);
+                        }}
+                      >
+                        <Play className="mr-1 h-3 w-3" /> Launch
+                      </Button>
+                      <Link to={`/instance/${instance.id}`} onClick={(e) => e.stopPropagation()}>
+                        <Button size="sm" variant="secondary">
+                          <Info className="h-4 w-4" />
+                        </Button>
+                      </Link>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openDeleteDialog(instance.id);
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </ContextMenuTrigger>
+              <ContextMenuContent className="w-56">
+                <ContextMenuItem onClick={() => launchInstance(instance.id)}>
+                  <Play className="mr-2 h-4 w-4" />
+                  Launch
+                </ContextMenuItem>
+                <ContextMenuItem onClick={() => handleKill(instance.id)}>
+                  <Square className="mr-2 h-4 w-4" />
+                  Kill
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem onClick={() => openRenameDialog(instance)}>
+                  <Pencil className="mr-2 h-4 w-4" />
+                  Rename
+                </ContextMenuItem>
+                <ContextMenuItem>
+                  <Image className="mr-2 h-4 w-4" />
+                  Change Icon
+                </ContextMenuItem>
+                <ContextMenuItem onClick={() => navigate(`/instance/${instance.id}`)}>
+                  <Settings className="mr-2 h-4 w-4" />
+                  Edit...
+                </ContextMenuItem>
+                <ContextMenuItem onClick={() => openGroupDialog(instance)}>
+                  <FolderTree className="mr-2 h-4 w-4" />
+                  Change Group...
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem onClick={() => handleOpenFolder(instance.id)}>
+                  <Folder className="mr-2 h-4 w-4" />
+                  Folder
+                </ContextMenuItem>
+                <ContextMenuItem>
+                  <FileOutput className="mr-2 h-4 w-4" />
+                  Export
+                </ContextMenuItem>
+                <ContextMenuItem onClick={() => handleCopy(instance.id)}>
+                  <Copy className="mr-2 h-4 w-4" />
+                  Copy
+                </ContextMenuItem>
+                <ContextMenuItem onClick={() => handleCreateShortcut(instance.id)}>
+                  <LinkIcon className="mr-2 h-4 w-4" />
+                  Create Shortcut
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onClick={() => openDeleteDialog(instance.id)}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
           ))}
         </div>
       )}
 
-      {contextMenu && (
-        <ContextMenu
-          x={contextMenu.x}
-          y={contextMenu.y}
-          items={getContextMenuItems(contextMenu.instanceId)}
-          onClose={() => setContextMenu(null)}
-        />
-      )}
-
       {/* Rename Dialog */}
-      {showRenameDialog && (
-        <div className="dialog-overlay" onClick={() => setShowRenameDialog(null)}>
-          <div className="dialog card" onClick={(e) => e.stopPropagation()}>
-            <h2>Rename Instance</h2>
-            <input
-              type="text"
+      <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename Instance</DialogTitle>
+            <DialogDescription>
+              Enter a new name for this instance.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Label htmlFor="name">Name</Label>
+            <Input
+              id="name"
               value={renameName}
               onChange={(e) => setRenameName(e.target.value)}
               placeholder="Enter new name"
-              autoFocus
               onKeyDown={(e) => {
-                if (e.key === "Enter") handleRename(showRenameDialog);
-                if (e.key === "Escape") setShowRenameDialog(null);
+                if (e.key === "Enter") handleRename();
               }}
             />
-            <div className="dialog-actions">
-              <button onClick={() => setShowRenameDialog(null)} className="btn-secondary">
-                Cancel
-              </button>
-              <button onClick={() => handleRename(showRenameDialog)} className="btn-success">
-                Rename
-              </button>
-            </div>
           </div>
-        </div>
-      )}
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setRenameDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleRename}>Rename</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Group Dialog */}
-      {showGroupDialog && (
-        <div className="dialog-overlay" onClick={() => setShowGroupDialog(null)}>
-          <div className="dialog card" onClick={(e) => e.stopPropagation()}>
-            <h2>Change Group</h2>
-            <input
-              type="text"
+      <Dialog open={groupDialogOpen} onOpenChange={setGroupDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Change Group</DialogTitle>
+            <DialogDescription>
+              Enter a group name or leave empty to ungroup.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Label htmlFor="group">Group Name</Label>
+            <Input
+              id="group"
               value={groupName}
               onChange={(e) => setGroupName(e.target.value)}
               placeholder="Enter group name (or leave empty)"
-              autoFocus
               onKeyDown={(e) => {
-                if (e.key === "Enter") handleChangeGroup(showGroupDialog);
-                if (e.key === "Escape") setShowGroupDialog(null);
+                if (e.key === "Enter") handleChangeGroup();
               }}
             />
-            <div className="dialog-actions">
-              <button onClick={() => setShowGroupDialog(null)} className="btn-secondary">
-                Cancel
-              </button>
-              <button onClick={() => handleChangeGroup(showGroupDialog)} className="btn-success">
-                Change Group
-              </button>
-            </div>
           </div>
-        </div>
-      )}
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setGroupDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleChangeGroup}>Change Group</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Instance?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the instance
+              and all its data.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

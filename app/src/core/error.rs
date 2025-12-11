@@ -4,6 +4,7 @@ use thiserror::Error;
 
 /// Main error type for the launcher
 #[derive(Error, Debug)]
+#[allow(dead_code)] // Error variants will be used as features are completed
 pub enum OxideError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),

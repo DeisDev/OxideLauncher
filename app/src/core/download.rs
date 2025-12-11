@@ -1,5 +1,7 @@
 //! Download management
 
+#![allow(dead_code)] // Download types will be used as features are completed
+
 use std::path::PathBuf;
 use tokio::sync::mpsc;
 use futures::StreamExt;

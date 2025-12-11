@@ -1,11 +1,14 @@
 //! Instance list management
 
+#![allow(dead_code)] // List management will be used as features are completed
+
 use std::path::PathBuf;
 use std::collections::HashMap;
-use crate::core::error::{OxideError, Result};
+use crate::core::error::Result;
 use super::Instance;
 
 /// List of all instances
+#[allow(dead_code)] // Methods will be used as features are implemented
 #[derive(Debug, Clone)]
 pub struct InstanceList {
     /// All instances, keyed by ID

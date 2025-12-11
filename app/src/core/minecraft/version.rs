@@ -1,8 +1,10 @@
 //! Minecraft version manifest and version info
 
+#![allow(dead_code)] // Helpers will be used as features are completed
+
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
-use crate::core::error::{OxideError, Result};
+use crate::core::error::Result;
 
 /// URL for the Minecraft version manifest
 const VERSION_MANIFEST_URL: &str = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";

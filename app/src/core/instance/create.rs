@@ -1,5 +1,7 @@
 //! Instance creation
 
+#![allow(dead_code)] // Creation pipeline will be used as features are completed
+
 use std::path::PathBuf;
 use crate::core::error::{OxideError, Result};
 use super::{Instance, InstanceConfig};
@@ -318,9 +320,9 @@ async fn import_zip_modpack(instance: &mut Instance, path: &PathBuf) -> Result<(
 
 /// Import a Modrinth modpack from the API
 async fn import_modrinth_modpack(
-    instance: &mut Instance,
-    project_id: &str,
-    version_id: &str,
+    _instance: &mut Instance,
+    _project_id: &str,
+    _version_id: &str,
 ) -> Result<()> {
     // TODO: Implement Modrinth API integration
     // 1. Fetch version info from Modrinth API
@@ -333,9 +335,9 @@ async fn import_modrinth_modpack(
 
 /// Import a CurseForge modpack from the API
 async fn import_curseforge_modpack(
-    instance: &mut Instance,
-    project_id: u32,
-    file_id: u32,
+    _instance: &mut Instance,
+    _project_id: u32,
+    _file_id: u32,
 ) -> Result<()> {
     // TODO: Implement CurseForge API integration
     // 1. Fetch mod info from CurseForge API (requires API key)
@@ -347,7 +349,7 @@ async fn import_curseforge_modpack(
 }
 
 /// Import a modpack from a URL
-async fn import_url_modpack(instance: &mut Instance, url: &str) -> Result<()> {
+async fn import_url_modpack(_instance: &mut Instance, _url: &str) -> Result<()> {
     // TODO: Implement URL download and modpack detection
     // 1. Download the file to temp directory
     // 2. Detect format based on content/extension

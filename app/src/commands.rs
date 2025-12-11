@@ -3,7 +3,7 @@
 use crate::core::{
     accounts::Account,
     config::Config,
-    instance::{Instance, setup_instance, SetupProgress},
+    instance::{setup_instance, Instance},
     minecraft::version::{fetch_version_manifest, VersionType},
     modloaders,
 };
@@ -226,7 +226,7 @@ pub async fn launch_instance(
             .clone()
     };
     
-    let config = Config::default();
+    let _config = Config::default();
     
     // Get version data
     let manifest = fetch_version_manifest().await
@@ -392,7 +392,6 @@ pub async fn copy_instance(
     state: State<'_, AppState>,
     instance_id: String,
 ) -> Result<String, String> {
-    use crate::core::instance::Instance;
     
     let instances = state.instances.lock().unwrap();
     let original = instances.iter().find(|i| i.id == instance_id)
@@ -517,7 +516,7 @@ pub async fn create_instance_shortcut(
     instance_id: String,
 ) -> Result<(), String> {
     let instances = state.instances.lock().unwrap();
-    let instance = instances.iter().find(|i| i.id == instance_id)
+    let _instance = instances.iter().find(|i| i.id == instance_id)
         .ok_or_else(|| "Instance not found".to_string())?;
     
     #[cfg(target_os = "windows")]
@@ -590,9 +589,10 @@ pub async fn get_accounts(state: State<'_, AppState>) -> Result<Vec<AccountInfo>
 
 #[tauri::command]
 pub async fn add_offline_account(
-    state: State<'_, AppState>,
-    username: String,
+    _state: State<'_, AppState>,
+    _username: String,
 ) -> Result<(), String> {
+    // TODO: Implement offline account creation
     // This would call the actual account creation logic
     Ok(())
 }

@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use crate::core::error::{OxideError, Result};
+use crate::core::error::Result;
 
 /// Application configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,6 +55,7 @@ impl Default for Config {
     }
 }
 
+#[allow(dead_code)] // Helper methods will be used as features are completed
 impl Config {
     /// Load configuration from disk
     pub fn load() -> Result<Self> {

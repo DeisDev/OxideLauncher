@@ -1,5 +1,7 @@
 //! Offline account creation
 
+#![allow(dead_code)] // Offline account creation will be used as features are completed
+
 use super::Account;
 
 /// Create an offline account with the given username

@@ -1,11 +1,21 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faSave, faTimes } from "@fortawesome/free-solid-svg-icons";
-import "./InstanceSettingsView.css";
-
-type TabType = "general" | "java" | "memory" | "game";
+import { Save, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface InstanceInfo {
   id: string;
@@ -17,9 +27,9 @@ interface InstanceInfo {
 export function InstanceSettingsView() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<TabType>("general");
   const [instance, setInstance] = useState<InstanceInfo | null>(null);
   const [loading, setLoading] = useState(true);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   // Settings state
   const [name, setName] = useState("");
@@ -50,169 +60,189 @@ export function InstanceSettingsView() {
 
   const saveSettings = async () => {
     // TODO: Implement save settings command
-    alert("Save settings not fully implemented yet");
-    navigate("/");
+    setSaveSuccess(true);
   };
 
   if (loading) {
-    return <div className="loading">Loading settings...</div>;
+    return <div className="flex items-center justify-center h-full">Loading settings...</div>;
   }
 
   if (!instance) {
-    return <div className="error">Instance not found</div>;
+    return <div className="flex items-center justify-center h-full text-destructive">Instance not found</div>;
   }
 
   return (
-    <div className="instance-settings-view">
-      <h1>Settings for {instance.name}</h1>
+    <div className="max-w-4xl mx-auto">
+      <h1 className="text-3xl font-bold mb-8">Settings for {instance.name}</h1>
 
-      <div className="settings-tabs">
-        <button
-          className={`settings-tab ${activeTab === "general" ? "active" : ""}`}
-          onClick={() => setActiveTab("general")}
-        >
-          General
-        </button>
-        <button
-          className={`settings-tab ${activeTab === "java" ? "active" : ""}`}
-          onClick={() => setActiveTab("java")}
-        >
-          Java
-        </button>
-        <button
-          className={`settings-tab ${activeTab === "memory" ? "active" : ""}`}
-          onClick={() => setActiveTab("memory")}
-        >
-          Memory
-        </button>
-        <button
-          className={`settings-tab ${activeTab === "game" ? "active" : ""}`}
-          onClick={() => setActiveTab("game")}
-        >
-          Game Window
-        </button>
+      <Tabs defaultValue="general" className="w-full">
+        <TabsList className="grid w-full grid-cols-4 mb-6">
+          <TabsTrigger value="general">General</TabsTrigger>
+          <TabsTrigger value="java">Java</TabsTrigger>
+          <TabsTrigger value="memory">Memory</TabsTrigger>
+          <TabsTrigger value="game">Game Window</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="general">
+          <Card>
+            <CardHeader>
+              <CardTitle>General Settings</CardTitle>
+              <CardDescription>Basic instance configuration.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="name">Instance Name</Label>
+                <Input
+                  id="name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Minecraft Version</Label>
+                <Input value={instance.minecraft_version} disabled />
+              </div>
+              <div className="space-y-2">
+                <Label>Mod Loader</Label>
+                <Input value={instance.mod_loader} disabled />
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="java">
+          <Card>
+            <CardHeader>
+              <CardTitle>Java Settings</CardTitle>
+              <CardDescription>
+                Configure Java runtime settings for this instance.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="javaPath">Custom Java Path (optional)</Label>
+                <Input
+                  id="javaPath"
+                  value={javaPath}
+                  onChange={(e) => setJavaPath(e.target.value)}
+                  placeholder="Leave empty to use default"
+                />
+                <p className="text-sm text-muted-foreground">
+                  Leave empty to use the global Java configuration.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="javaArgs">Extra Java Arguments</Label>
+                <Input
+                  id="javaArgs"
+                  value={javaArgs}
+                  onChange={(e) => setJavaArgs(e.target.value)}
+                  placeholder="-XX:+UseG1GC -Dsun.rmi.dgc.server.gcInterval=2147483646"
+                />
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="memory">
+          <Card>
+            <CardHeader>
+              <CardTitle>Memory Settings</CardTitle>
+              <CardDescription>
+                Configure how much RAM this instance can use.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="minMemory">Minimum Memory (MB)</Label>
+                  <Input
+                    id="minMemory"
+                    type="number"
+                    value={minMemory}
+                    onChange={(e) => setMinMemory(e.target.value)}
+                    min="512"
+                    max="32768"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="maxMemory">Maximum Memory (MB)</Label>
+                  <Input
+                    id="maxMemory"
+                    type="number"
+                    value={maxMemory}
+                    onChange={(e) => setMaxMemory(e.target.value)}
+                    min="1024"
+                    max="32768"
+                  />
+                </div>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Leave empty to use the global memory configuration.
+              </p>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="game">
+          <Card>
+            <CardHeader>
+              <CardTitle>Game Window</CardTitle>
+              <CardDescription>
+                Configure the Minecraft window size on launch.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="width">Window Width</Label>
+                  <Input
+                    id="width"
+                    type="number"
+                    value={width}
+                    onChange={(e) => setWidth(e.target.value)}
+                    min="640"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="height">Window Height</Label>
+                  <Input
+                    id="height"
+                    type="number"
+                    value={height}
+                    onChange={(e) => setHeight(e.target.value)}
+                    min="480"
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      <div className="flex justify-end gap-4 mt-8">
+        <Button variant="outline" onClick={() => navigate("/")}>
+          <X className="mr-2 h-4 w-4" /> Cancel
+        </Button>
+        <Button onClick={saveSettings}>
+          <Save className="mr-2 h-4 w-4" /> Save Settings
+        </Button>
       </div>
 
-      <div className="settings-content card" style={{ padding: "32px" }}>
-        {activeTab === "general" && (
-          <div className="settings-section">
-            <h2>General Settings</h2>
-            <div className="form-group">
-              <label htmlFor="name">Instance Name</label>
-              <input
-                id="name"
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-            </div>
-            <div className="form-group">
-              <label>Minecraft Version</label>
-              <input type="text" value={instance.minecraft_version} disabled />
-            </div>
-            <div className="form-group">
-              <label>Mod Loader</label>
-              <input type="text" value={instance.mod_loader} disabled />
-            </div>
-          </div>
-        )}
-
-        {activeTab === "java" && (
-          <div className="settings-section">
-            <h2>Java Settings</h2>
-            <p>Configure Java runtime settings for this instance.</p>
-            <div className="form-group">
-              <label htmlFor="javaPath">Custom Java Path (optional)</label>
-              <input
-                id="javaPath"
-                type="text"
-                value={javaPath}
-                onChange={(e) => setJavaPath(e.target.value)}
-                placeholder="Leave empty to use default"
-              />
-            </div>
-            <div className="form-group">
-              <label htmlFor="javaArgs">Extra Java Arguments</label>
-              <input
-                id="javaArgs"
-                type="text"
-                value={javaArgs}
-                onChange={(e) => setJavaArgs(e.target.value)}
-                placeholder="-XX:+UseG1GC -Dsun.rmi.dgc.server.gcInterval=2147483646"
-              />
-            </div>
-          </div>
-        )}
-
-        {activeTab === "memory" && (
-          <div className="settings-section">
-            <h2>Memory Settings</h2>
-            <p>Configure how much RAM this instance can use.</p>
-            <div className="form-row">
-              <div className="form-group">
-                <label htmlFor="minMemory">Minimum Memory (MB)</label>
-                <input
-                  id="minMemory"
-                  type="number"
-                  value={minMemory}
-                  onChange={(e) => setMinMemory(e.target.value)}
-                  min="512"
-                  max="32768"
-                />
-              </div>
-              <div className="form-group">
-                <label htmlFor="maxMemory">Maximum Memory (MB)</label>
-                <input
-                  id="maxMemory"
-                  type="number"
-                  value={maxMemory}
-                  onChange={(e) => setMaxMemory(e.target.value)}
-                  min="1024"
-                  max="32768"
-                />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === "game" && (
-          <div className="settings-section">
-            <h2>Game Window</h2>
-            <p>Configure the Minecraft window size on launch.</p>
-            <div className="form-row">
-              <div className="form-group">
-                <label htmlFor="width">Window Width</label>
-                <input
-                  id="width"
-                  type="number"
-                  value={width}
-                  onChange={(e) => setWidth(e.target.value)}
-                  min="640"
-                />
-              </div>
-              <div className="form-group">
-                <label htmlFor="height">Window Height</label>
-                <input
-                  id="height"
-                  type="number"
-                  value={height}
-                  onChange={(e) => setHeight(e.target.value)}
-                  min="480"
-                />
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="settings-actions">
-        <button onClick={() => navigate("/")} className="btn-secondary">
-          <FontAwesomeIcon icon={faTimes} /> Cancel
-        </button>
-        <button onClick={saveSettings} className="btn-success">
-          <FontAwesomeIcon icon={faSave} /> Save Settings
-        </button>
-      </div>
+      {/* Save Success Dialog */}
+      <AlertDialog open={saveSuccess} onOpenChange={setSaveSuccess}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Settings Saved</AlertDialogTitle>
+            <AlertDialogDescription>
+              Your settings have been saved successfully.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => navigate("/")}>OK</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

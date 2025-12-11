@@ -1,14 +1,16 @@
 //! Instance setup - downloading and preparing instance files
 
+#![allow(dead_code)] // Setup fields will be used as features are completed
+
 use std::path::PathBuf;
 use tokio::sync::mpsc;
 use crate::core::{
     download::{download_file, download_file_verified, download_files, DownloadTask, DownloadProgress},
     error::{OxideError, Result},
     minecraft::{
-        version::{fetch_version_manifest, fetch_version_data, VersionData},
-        libraries::{get_missing_libraries, get_native_libraries, LibraryDownload},
-        assets::{fetch_asset_index, get_missing_assets},
+        version::{fetch_version_manifest, fetch_version_data},
+        libraries::{get_missing_libraries, get_native_libraries},
+        assets::get_missing_assets,
     },
 };
 use super::Instance;
@@ -197,7 +199,7 @@ fn extract_native_library(
     natives_dir: &PathBuf,
     exclude_patterns: Option<&[String]>,
 ) -> Result<()> {
-    use std::io::Read;
+
     
     if !jar_path.exists() {
         return Ok(()); // Skip if library doesn't exist

@@ -1,12 +1,14 @@
 //! Game launch system
 
+#![allow(dead_code)] // Launch system functions will be used as features are completed
+
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use crate::core::error::{OxideError, Result};
 use crate::core::instance::Instance;
 use crate::core::accounts::{Account, AuthSession};
 use crate::core::config::Config;
-use crate::core::minecraft::version::{VersionData, fetch_version_data, ArgumentValue, ArgumentValueInner, current_os_name, current_arch};
+use crate::core::minecraft::version::{VersionData, fetch_version_data, ArgumentValue, ArgumentValueInner};
 use crate::core::java;
 
 /// Launch a Minecraft instance
@@ -115,7 +117,7 @@ fn build_launch_command(
     config: &Config,
     version_data: &VersionData,
     auth_session: &AuthSession,
-    java_path: &PathBuf,
+    _java_path: &PathBuf,
 ) -> Result<Vec<String>> {
     let mut args = Vec::new();
     

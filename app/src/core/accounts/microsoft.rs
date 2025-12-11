@@ -9,8 +9,10 @@
 //! 4. Exchange XSTS token for Minecraft token
 //! 5. Get Minecraft profile
 
+#![allow(dead_code)] // Microsoft auth will be used as features are completed
+
 use chrono::{Duration, Utc};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use crate::core::error::{OxideError, Result};
 use crate::core::config::Config;
 use super::Account;

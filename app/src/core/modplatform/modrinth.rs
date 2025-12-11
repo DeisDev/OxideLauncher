@@ -1,7 +1,9 @@
 //! Modrinth API client
 
-use serde::{Deserialize, Serialize};
-use crate::core::error::{OxideError, Result};
+#![allow(dead_code)] // API client will be used as features are completed
+
+use serde::Deserialize;
+use crate::core::error::Result;
 use crate::core::config::Config;
 use super::types::*;
 

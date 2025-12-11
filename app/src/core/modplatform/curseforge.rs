@@ -1,6 +1,8 @@
 //! CurseForge API client
 
-use serde::{Deserialize, Serialize};
+#![allow(dead_code)] // API client will be used as features are completed
+
+use serde::Deserialize;
 use crate::core::error::{OxideError, Result};
 use crate::core::config::Config;
 use super::types::*;

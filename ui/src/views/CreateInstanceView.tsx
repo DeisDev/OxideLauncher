@@ -1,9 +1,20 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faSave, faTimes, faSearch } from "@fortawesome/free-solid-svg-icons";
-import "./CreateInstanceView.css";
+import { Save, X, Search } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface MinecraftVersion {
   id: string;
@@ -87,14 +98,14 @@ export function CreateInstanceView() {
 
   const loadLoaderVersions = async () => {
     if (!version) return;
-    
+
     setLoadingLoaderVersions(true);
     setLoaderVersions([]);
     setLoaderVersion("");
 
     try {
       let data: LoaderVersion[] = [];
-      
+
       switch (modLoader) {
         case "Forge":
           data = await invoke<LoaderVersion[]>("get_forge_versions", {
@@ -124,7 +135,7 @@ export function CreateInstanceView() {
       }
 
       setLoaderVersions(data);
-      
+
       // Auto-select recommended version
       const recommended = data.find((v) => v.recommended);
       if (recommended) {
@@ -155,142 +166,169 @@ export function CreateInstanceView() {
       navigate("/");
     } catch (error) {
       console.error("Failed to create instance:", error);
-      alert("Failed to create instance");
     } finally {
       setCreating(false);
     }
   };
 
   return (
-    <div className="create-instance-view">
-      <h1>Create New Instance</h1>
-      <form onSubmit={handleSubmit} className="card">
-        <div className="form-group">
-          <label htmlFor="name">Instance Name</label>
-          <input
-            id="name"
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="My Minecraft Instance"
-            required
-          />
-        </div>
+    <div className="max-w-2xl mx-auto">
+      <h1 className="text-3xl font-bold mb-8">Create New Instance</h1>
 
-        <div className="form-group">
-          <label>Minecraft Version</label>
-          
-          <div className="version-filters">
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={showReleases}
-                onChange={(e) => setShowReleases(e.target.checked)}
+      <Card>
+        <CardHeader>
+          <CardTitle>Instance Configuration</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="space-y-2">
+              <Label htmlFor="name">Instance Name</Label>
+              <Input
+                id="name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="My Minecraft Instance"
+                required
               />
-              <span>Releases</span>
-            </label>
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={showSnapshots}
-                onChange={(e) => setShowSnapshots(e.target.checked)}
-              />
-              <span>Snapshots</span>
-            </label>
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={showOld}
-                onChange={(e) => setShowOld(e.target.checked)}
-              />
-              <span>Old Versions (Alpha/Beta)</span>
-            </label>
-          </div>
+            </div>
 
-          <div className="version-search">
-            <FontAwesomeIcon icon={faSearch} className="search-icon" />
-            <input
-              type="text"
-              value={versionSearch}
-              onChange={(e) => setVersionSearch(e.target.value)}
-              placeholder="Search versions..."
-            />
-          </div>
+            <div className="space-y-4">
+              <Label>Minecraft Version</Label>
 
-          <select
-            id="version"
-            value={version}
-            onChange={(e) => setVersion(e.target.value)}
-            size={10}
-            required
-          >
-            {loadingVersions ? (
-              <option disabled>Loading versions...</option>
-            ) : filteredVersions.length === 0 ? (
-              <option disabled>No versions found</option>
-            ) : (
-              filteredVersions.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.id} ({v.version_type})
-                </option>
-              ))
+              <div className="flex flex-wrap gap-4">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="releases"
+                    checked={showReleases}
+                    onCheckedChange={(checked) => setShowReleases(checked as boolean)}
+                  />
+                  <Label htmlFor="releases" className="text-sm font-normal cursor-pointer">
+                    Releases
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="snapshots"
+                    checked={showSnapshots}
+                    onCheckedChange={(checked) => setShowSnapshots(checked as boolean)}
+                  />
+                  <Label htmlFor="snapshots" className="text-sm font-normal cursor-pointer">
+                    Snapshots
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="old"
+                    checked={showOld}
+                    onCheckedChange={(checked) => setShowOld(checked as boolean)}
+                  />
+                  <Label htmlFor="old" className="text-sm font-normal cursor-pointer">
+                    Old Versions (Alpha/Beta)
+                  </Label>
+                </div>
+              </div>
+
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  value={versionSearch}
+                  onChange={(e) => setVersionSearch(e.target.value)}
+                  placeholder="Search versions..."
+                  className="pl-9"
+                />
+              </div>
+
+              <ScrollArea className="h-48 rounded-md border">
+                <div className="p-2">
+                  {loadingVersions ? (
+                    <p className="text-muted-foreground text-sm p-2">Loading versions...</p>
+                  ) : filteredVersions.length === 0 ? (
+                    <p className="text-muted-foreground text-sm p-2">No versions found</p>
+                  ) : (
+                    filteredVersions.map((v) => (
+                      <button
+                        key={v.id}
+                        type="button"
+                        className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
+                          version === v.id
+                            ? "bg-primary text-primary-foreground"
+                            : "hover:bg-accent"
+                        }`}
+                        onClick={() => setVersion(v.id)}
+                      >
+                        {v.id}{" "}
+                        <span className="text-xs opacity-70">({v.version_type})</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </ScrollArea>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="modLoader">Mod Loader</Label>
+              <Select value={modLoader} onValueChange={setModLoader}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select mod loader" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Vanilla">Vanilla (No Mods)</SelectItem>
+                  <SelectItem value="Forge">Forge</SelectItem>
+                  <SelectItem value="NeoForge">NeoForge (Modern Forge)</SelectItem>
+                  <SelectItem value="Fabric">Fabric</SelectItem>
+                  <SelectItem value="Quilt">Quilt</SelectItem>
+                  <SelectItem value="LiteLoader">LiteLoader (Legacy)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {modLoader !== "Vanilla" && (
+              <div className="space-y-2">
+                <Label htmlFor="loaderVersion">
+                  {modLoader} Version
+                  {loadingLoaderVersions && (
+                    <span className="text-muted-foreground ml-2">(Loading...)</span>
+                  )}
+                </Label>
+                <Select
+                  value={loaderVersion}
+                  onValueChange={setLoaderVersion}
+                  disabled={loadingLoaderVersions || loaderVersions.length === 0}
+                >
+                  <SelectTrigger>
+                    <SelectValue
+                      placeholder={
+                        loadingLoaderVersions
+                          ? "Loading..."
+                          : loaderVersions.length === 0
+                          ? "No versions available"
+                          : "Select version"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {loaderVersions.map((v) => (
+                      <SelectItem key={v.version} value={v.version}>
+                        {v.version} {v.recommended && "(Recommended)"}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             )}
-          </select>
-        </div>
 
-        <div className="form-group">
-          <label htmlFor="modLoader">Mod Loader</label>
-          <select
-            id="modLoader"
-            value={modLoader}
-            onChange={(e) => setModLoader(e.target.value)}
-          >
-            <option value="Vanilla">Vanilla (No Mods)</option>
-            <option value="Forge">Forge</option>
-            <option value="NeoForge">NeoForge (Modern Forge)</option>
-            <option value="Fabric">Fabric</option>
-            <option value="Quilt">Quilt</option>
-            <option value="LiteLoader">LiteLoader (Legacy)</option>
-          </select>
-        </div>
-
-        {modLoader !== "Vanilla" && (
-          <div className="form-group">
-            <label htmlFor="loaderVersion">
-              {modLoader} Version
-              {loadingLoaderVersions && " (Loading...)"}
-            </label>
-            <select
-              id="loaderVersion"
-              value={loaderVersion}
-              onChange={(e) => setLoaderVersion(e.target.value)}
-              disabled={loadingLoaderVersions || loaderVersions.length === 0}
-              required
-            >
-              {loaderVersions.length === 0 ? (
-                <option value="">
-                  {loadingLoaderVersions ? "Loading..." : "No versions available"}
-                </option>
-              ) : (
-                loaderVersions.map((v) => (
-                  <option key={v.version} value={v.version}>
-                    {v.version} {v.recommended ? "(Recommended)" : ""}
-                  </option>
-                ))
-              )}
-            </select>
-          </div>
-        )}
-
-        <div className="form-actions">
-          <button type="button" onClick={() => navigate("/")} className="btn-secondary">
-            <FontAwesomeIcon icon={faTimes} /> Cancel
-          </button>
-          <button type="submit" disabled={creating} className="btn-success">
-            <FontAwesomeIcon icon={faSave} /> {creating ? "Creating..." : "Create Instance"}
-          </button>
-        </div>
-      </form>
+            <div className="flex justify-end gap-3 pt-4">
+              <Button type="button" variant="secondary" onClick={() => navigate("/")}>
+                <X className="mr-2 h-4 w-4" /> Cancel
+              </Button>
+              <Button type="submit" disabled={creating}>
+                <Save className="mr-2 h-4 w-4" />
+                {creating ? "Creating..." : "Create Instance"}
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -8,6 +8,9 @@ mod create;
 mod setup;
 
 pub use types::*;
+#[allow(unused_imports)] // Will be used as features are completed
 pub use list::InstanceList;
+#[allow(unused_imports)]
 pub use create::create_instance;
+#[allow(unused_imports)]
 pub use setup::{setup_instance, SetupProgress};

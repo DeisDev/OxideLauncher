@@ -1,5 +1,7 @@
 //! Account data types
 
+#![allow(dead_code)] // Types will be used as features are completed
+
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;

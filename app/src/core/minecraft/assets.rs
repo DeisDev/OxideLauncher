@@ -1,5 +1,7 @@
 //! Minecraft assets management
 
+#![allow(dead_code)] // Asset functions will be used as features are completed
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
