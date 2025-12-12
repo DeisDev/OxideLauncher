@@ -55,6 +55,12 @@ fn main() {
             commands::get_installed_mods,
             commands::toggle_mod,
             commands::delete_mod,
+            commands::delete_mods,
+            commands::enable_mods,
+            commands::disable_mods,
+            commands::open_mods_folder,
+            commands::open_configs_folder,
+            commands::add_local_mod,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

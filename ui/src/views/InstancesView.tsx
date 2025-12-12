@@ -2,9 +2,16 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import {
-  Plus, Play, Trash2, Info, Box, Pencil, Folder, Copy, FileOutput,
-  Image, Settings, Square, FolderTree, Link as LinkIcon
+  Plus, Play, Trash2, Info, Pencil, Folder, Copy, FileOutput,
+  Image, Settings, Square, FolderTree, Link as LinkIcon, Feather
 } from "lucide-react";
+
+// Mod loader icon paths (relative to public or using URL constructor)
+const GrassIcon = new URL("../../art/grass.svg", import.meta.url).href;
+const FabricIcon = new URL("../../art/fabricmc.svg", import.meta.url).href;
+const ForgeIcon = new URL("../../art/forge.svg", import.meta.url).href;
+const NeoForgeIcon = new URL("../../art/neoforged.svg", import.meta.url).href;
+const QuiltIcon = new URL("../../art/quiltmc.svg", import.meta.url).href;
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -40,10 +47,30 @@ interface InstanceInfo {
   name: string;
   minecraft_version: string;
   mod_loader: string;
+  mod_loader_version: string | null;
   icon: string | null;
   last_played: string | null;
   total_played_seconds: number;
   group?: string | null;
+}
+
+// Helper to get mod loader icon
+function getModLoaderIcon(loader: string): { icon: string | null; isLucide: boolean } {
+  switch (loader) {
+    case "Fabric":
+      return { icon: FabricIcon, isLucide: false };
+    case "Forge":
+      return { icon: ForgeIcon, isLucide: false };
+    case "NeoForge":
+      return { icon: NeoForgeIcon, isLucide: false };
+    case "Quilt":
+      return { icon: QuiltIcon, isLucide: false };
+    case "LiteLoader":
+      return { icon: null, isLucide: true }; // Use Lucide Feather icon
+    case "Vanilla":
+    default:
+      return { icon: GrassIcon, isLucide: false };
+  }
 }
 
 export function InstancesView() {
@@ -206,12 +233,14 @@ export function InstancesView() {
           </Link>
         </div>
       ) : (
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-6">
-          {instances.map((instance) => (
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-4">
+          {instances.map((instance) => {
+            const loaderInfo = getModLoaderIcon(instance.mod_loader);
+            return (
             <ContextMenu key={instance.id}>
               <ContextMenuTrigger>
                 <Card className="overflow-hidden cursor-pointer transition-all hover:-translate-y-1 hover:shadow-xl hover:border-primary/50">
-                  <div className="h-44 flex items-center justify-center bg-gradient-to-br from-muted to-card overflow-hidden">
+                  <div className="h-28 flex items-center justify-center bg-gradient-to-br from-muted to-card overflow-hidden">
                     {instance.icon ? (
                       <img
                         src={instance.icon}
@@ -219,47 +248,46 @@ export function InstancesView() {
                         className="w-full h-full object-cover transition-transform hover:scale-105"
                       />
                     ) : (
-                      <Box className="h-14 w-14 text-muted-foreground" />
+                      <img
+                        src={GrassIcon}
+                        alt="Minecraft"
+                        className="h-16 w-16 object-contain"
+                      />
                     )}
                   </div>
-                  <CardContent className="p-5">
-                    <h3 className="font-semibold text-lg mb-1">{instance.name}</h3>
-                    <p className="text-sm text-muted-foreground">
-                      Minecraft {instance.minecraft_version}
+                  <CardContent className="p-3">
+                    <h3 className="font-semibold text-sm mb-1 truncate">{instance.name}</h3>
+                    <p className="text-xs text-muted-foreground">
+                      {instance.minecraft_version}
                     </p>
-                    <p className="text-sm text-muted-foreground mb-3">
-                      {instance.mod_loader}
-                    </p>
-                    {instance.last_played && (
-                      <p className="text-xs text-muted-foreground">
-                        Last played: {new Date(instance.last_played).toLocaleDateString()}
-                      </p>
-                    )}
-                    <div className="flex gap-2 mt-4">
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground mb-2">
+                      {loaderInfo.isLucide ? (
+                        <Feather className="h-3 w-3" />
+                      ) : loaderInfo.icon && instance.mod_loader !== "Vanilla" ? (
+                        <img src={loaderInfo.icon} alt={instance.mod_loader} className="h-3 w-3" />
+                      ) : null}
+                      <span>
+                        {instance.mod_loader !== "Vanilla" 
+                          ? `${instance.mod_loader}${instance.mod_loader_version ? ` ${instance.mod_loader_version}` : ""}`
+                          : "Vanilla"}
+                      </span>
+                    </div>
+                    <div className="flex gap-1 mt-2">
                       <Button
                         size="sm"
+                        className="h-7 text-xs px-2"
                         onClick={(e) => {
                           e.stopPropagation();
                           launchInstance(instance.id);
                         }}
                       >
-                        <Play className="mr-1 h-3 w-3" /> Launch
+                        <Play className="mr-1 h-3 w-3" /> Play
                       </Button>
                       <Link to={`/instance/${instance.id}`} onClick={(e) => e.stopPropagation()}>
-                        <Button size="sm" variant="secondary">
-                          <Info className="h-4 w-4" />
+                        <Button size="sm" variant="secondary" className="h-7 px-2">
+                          <Info className="h-3 w-3" />
                         </Button>
                       </Link>
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openDeleteDialog(instance.id);
-                        }}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -317,7 +345,8 @@ export function InstancesView() {
                 </ContextMenuItem>
               </ContextMenuContent>
             </ContextMenu>
-          ))}
+          );
+          })}
         </div>
       )}
 
