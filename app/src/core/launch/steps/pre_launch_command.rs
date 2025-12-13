@@ -10,6 +10,7 @@ use crate::core::launch::{LaunchContext, LaunchStep, LaunchStepResult};
 pub struct PreLaunchCommandStep {
     status: Option<String>,
     progress: f32,
+    #[allow(dead_code)] // Reserved for abort functionality
     aborted: bool,
 }
 

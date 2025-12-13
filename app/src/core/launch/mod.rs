@@ -9,9 +9,12 @@ mod task;
 pub mod steps;
 
 pub use step::{LaunchStep, LaunchStepResult};
+#[allow(unused_imports)] // Part of public API
 pub use task::{LaunchTask, LaunchProgress, LaunchState};
+#[allow(unused_imports)] // Re-exports for convenience
 pub use steps::*;
 
+#[allow(unused_imports)] // May be used by steps
 use crate::core::error::Result;
 use crate::core::instance::Instance;
 use crate::core::accounts::AuthSession;
@@ -48,6 +51,7 @@ pub struct LaunchContext {
     pub assets_dir: std::path::PathBuf,
     
     /// Whether launch was aborted
+    #[allow(dead_code)] // Used by abort functionality
     pub aborted: bool,
 }
 
@@ -76,6 +80,7 @@ impl LaunchContext {
 
 /// Message levels for log output
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)] // Variants used for log categorization
 pub enum MessageLevel {
     /// Launcher status messages
     Launcher,

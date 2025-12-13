@@ -6,7 +6,7 @@ use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 use crate::core::error::{OxideError, Result};
 
@@ -429,7 +429,7 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
 fn add_directory_to_zip<W: std::io::Write + std::io::Seek>(
     zip: &mut zip::ZipWriter<W>,
     dir_path: &Path,
-    prefix: &str,
+    _prefix: &str, // Reserved for future use with custom prefixes
     options: zip::write::SimpleFileOptions,
 ) -> Result<()> {
     for entry in walkdir::WalkDir::new(dir_path) {

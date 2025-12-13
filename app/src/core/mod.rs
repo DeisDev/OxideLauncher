@@ -13,9 +13,3 @@ pub mod download;
 pub mod launch;
 pub mod java;
 pub mod error;
-
-// Re-export commonly used Java types
-pub use java::{
-    JavaVersion, JavaInstallation, JavaArch, JavaMetadata, DownloadType,
-    detect_java_installations, find_java_for_version,
-};

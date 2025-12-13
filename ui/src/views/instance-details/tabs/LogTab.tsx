@@ -1,0 +1,118 @@
+import { useRef, useEffect } from "react";
+import { Copy, Upload, Trash2, Search, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { cn } from "@/lib/utils";
+
+interface LogTabProps {
+  logContent: string[];
+  setLogContent: (logs: string[]) => void;
+  searchTerm: string;
+  setSearchTerm: (term: string) => void;
+  autoScroll: boolean;
+  setAutoScroll: (auto: boolean) => void;
+  wrapLines: boolean;
+  setWrapLines: (wrap: boolean) => void;
+}
+
+export function LogTab({
+  logContent,
+  setLogContent,
+  searchTerm,
+  setSearchTerm,
+  autoScroll,
+  setAutoScroll,
+  wrapLines,
+  setWrapLines,
+}: LogTabProps) {
+  const logEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (autoScroll && logEndRef.current) {
+      logEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [logContent, autoScroll]);
+
+  const copyLogs = () => {
+    navigator.clipboard.writeText(logContent.join("\n"));
+  };
+
+  const uploadLogs = () => {
+    alert("Upload to pastebin/logs service not implemented yet");
+  };
+
+  const clearLogs = () => {
+    setLogContent([]);
+  };
+
+  const filteredLogs = searchTerm
+    ? logContent.filter((line) =>
+        line.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+    : logContent;
+
+  return (
+    <div className="flex flex-col h-full gap-4">
+      <div className="flex items-center gap-2 flex-wrap">
+        <Button variant="outline" size="sm" onClick={copyLogs}>
+          <Copy className="mr-2 h-4 w-4" /> Copy
+        </Button>
+        <Button variant="outline" size="sm" onClick={uploadLogs}>
+          <Upload className="mr-2 h-4 w-4" /> Upload
+        </Button>
+        <Button variant="destructive" size="sm" onClick={clearLogs}>
+          <Trash2 className="mr-2 h-4 w-4" /> Clear
+        </Button>
+
+        <div className="flex-1" />
+
+        <div className="flex items-center space-x-2">
+          <Checkbox
+            id="autoScroll"
+            checked={autoScroll}
+            onCheckedChange={(checked) => setAutoScroll(checked as boolean)}
+          />
+          <Label htmlFor="autoScroll" className="text-sm">Auto-scroll</Label>
+        </div>
+
+        <div className="flex items-center space-x-2">
+          <Checkbox
+            id="wrapLines"
+            checked={wrapLines}
+            onCheckedChange={(checked) => setWrapLines(checked as boolean)}
+          />
+          <Label htmlFor="wrapLines" className="text-sm">Wrap lines</Label>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search logs..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <Button variant="outline" size="sm" onClick={() => setSearchTerm("")}>
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+
+      <ScrollArea className="flex-1 rounded-md border bg-black/50">
+        <div className={cn("p-4 font-mono text-xs", wrapLines ? "whitespace-pre-wrap" : "whitespace-pre")}>
+          {filteredLogs.map((line, index) => (
+            <div key={index} className="hover:bg-white/5">
+              {line}
+            </div>
+          ))}
+          <div ref={logEndRef} />
+        </div>
+      </ScrollArea>
+    </div>
+  );
+}

@@ -1,7 +1,5 @@
 //! Launch task manager
 
-use std::sync::Arc;
-use tokio::sync::{Mutex, mpsc};
 use crate::core::error::Result;
 use super::{
     LaunchStep, LaunchStepResult, LaunchContext, MessageLevel,
@@ -10,6 +8,7 @@ use super::{
 
 /// Current state of the launch process
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)] // Variants reserved for future use
 pub enum LaunchState {
     /// Not started yet
     Idle,
@@ -31,6 +30,7 @@ pub enum LaunchState {
 
 /// Progress information for the launch process
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Part of public API for progress tracking
 pub struct LaunchProgress {
     /// Current state
     pub state: LaunchState,
@@ -105,6 +105,7 @@ impl LaunchTask {
     }
     
     /// Add a step to the beginning of the launch process
+    #[allow(dead_code)] // Part of public API
     pub fn prepend_step(&mut self, step: Box<dyn LaunchStep>) {
         self.steps.insert(0, step);
     }
@@ -115,6 +116,7 @@ impl LaunchTask {
     }
     
     /// Get current progress
+    #[allow(dead_code)] // Part of public API for progress tracking
     pub fn progress(&self) -> LaunchProgress {
         let step_name = if self.current_step < self.steps.len() {
             self.steps[self.current_step].name().to_string()
@@ -154,6 +156,7 @@ impl LaunchTask {
     }
     
     /// Log a line with the launcher source
+    #[allow(dead_code)] // Part of public API for logging
     pub fn log_line(&self, message: impl Into<String>, level: MessageLevel) {
         self.log(level, message);
     }
@@ -239,6 +242,7 @@ impl LaunchTask {
     }
     
     /// Request abort of the launch process
+    #[allow(dead_code)] // Part of public API for abort handling
     pub async fn abort(&mut self) -> bool {
         self.abort_requested = true;
         self.context.aborted = true;
@@ -269,6 +273,7 @@ impl LaunchTask {
     }
     
     /// Proceed after waiting for input
+    #[allow(dead_code)] // Part of public API for interactive steps
     pub async fn proceed(&mut self) {
         if self.state == LaunchState::WaitingForInput {
             self.state = LaunchState::Running;
@@ -277,16 +282,19 @@ impl LaunchTask {
     }
     
     /// Get the instance being launched
+    #[allow(dead_code)] // Part of public API
     pub fn instance(&self) -> &crate::core::instance::Instance {
         &self.context.instance
     }
     
     /// Get mutable access to the context
+    #[allow(dead_code)] // Part of public API
     pub fn context_mut(&mut self) -> &mut LaunchContext {
         &mut self.context
     }
     
     /// Substitute variables in a command string
+    #[allow(dead_code)] // Part of public API for command variable substitution
     pub fn substitute_variables(&self, command: &str) -> String {
         let instance = &self.context.instance;
         let game_dir = instance.game_dir();

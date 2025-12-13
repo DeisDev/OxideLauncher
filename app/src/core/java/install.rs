@@ -137,6 +137,7 @@ impl JavaInstallation {
     }
     
     /// Get a human-readable descriptor
+    #[allow(dead_code)] // Part of public API
     pub fn descriptor(&self) -> String {
         format!("Java {} ({}, {})", self.version.major, self.vendor, self.arch)
     }
@@ -152,11 +153,13 @@ impl JavaInstallation {
     }
     
     /// Check if the Java executable exists
+    #[allow(dead_code)] // Part of public API
     pub fn exists(&self) -> bool {
         self.path.exists()
     }
     
     /// Validate that this Java installation is still valid
+    #[allow(dead_code)] // Part of public API
     pub fn validate(&self) -> bool {
         self.path.exists() && self.path.is_file()
     }
@@ -200,6 +203,7 @@ impl Ord for JavaInstallation {
 }
 
 /// Result of Java installation validation/check
+#[allow(dead_code)] // Part of public API for validation results
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JavaValidationResult {
     /// Whether the Java is valid
@@ -215,6 +219,7 @@ pub struct JavaValidationResult {
 }
 
 impl JavaValidationResult {
+    #[allow(dead_code)] // Part of public API
     pub fn success(installation: JavaInstallation) -> Self {
         Self {
             valid: true,
@@ -225,6 +230,7 @@ impl JavaValidationResult {
         }
     }
     
+    #[allow(dead_code)] // Part of public API
     pub fn failure(installation: JavaInstallation, error: String) -> Self {
         Self {
             valid: false,
@@ -238,11 +244,13 @@ impl JavaValidationResult {
 
 /// Persistent storage for managed Java installations
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[allow(dead_code)] // Part of public API for Java installation management
 pub struct ManagedJavaList {
     /// List of launcher-managed Java installations
     pub installations: Vec<JavaInstallation>,
 }
 
+#[allow(dead_code)] // Part of public API
 impl ManagedJavaList {
     /// Add a new managed installation
     pub fn add(&mut self, mut installation: JavaInstallation) {

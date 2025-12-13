@@ -153,6 +153,7 @@ impl CheckJavaStep {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)] // Fields used for debugging/logging
 struct JavaInfo {
     version: String,
     architecture: String,
@@ -179,13 +180,14 @@ impl LaunchStep for CheckJavaStep {
         
         // Determine Java path to use
         let java_path: Option<PathBuf>;
-        let per_instance: bool;
+        #[allow(unused_assignments)] // Used for debugging/logging purposes
+        let mut _per_instance: bool = false;
         
         // Check instance-specific Java first
         if let Some(ref instance_java) = instance.settings.java_path {
             if let Some(resolved) = self.resolve_java_path(&instance_java.to_string_lossy()) {
                 java_path = Some(resolved);
-                per_instance = true;
+                _per_instance = true;
                 info!("Using instance-specific Java: {:?}", java_path);
             } else {
                 return LaunchStepResult::Failed(format!(
@@ -199,7 +201,7 @@ impl LaunchStep for CheckJavaStep {
         else if let Some(ref custom_path) = config.java.custom_path {
             if let Some(resolved) = self.resolve_java_path(&custom_path.to_string_lossy()) {
                 java_path = Some(resolved);
-                per_instance = false;
+                _per_instance = false;
                 info!("Using global custom Java: {:?}", java_path);
             } else {
                 return LaunchStepResult::Failed(format!(
@@ -218,14 +220,14 @@ impl LaunchStep for CheckJavaStep {
             
             if let Some(detected) = java::find_java_for_version(required) {
                 java_path = Some(detected.path);
-                per_instance = false;
+                _per_instance = false;
                 info!("Auto-detected Java for version {}: {:?}", required, java_path);
             } else {
                 // Fall back to any Java in PATH
                 let java_exe = if cfg!(target_os = "windows") { "java.exe" } else { "java" };
                 if let Ok(path) = which::which(java_exe) {
                     java_path = Some(path);
-                    per_instance = false;
+                    _per_instance = false;
                     warn!("Using fallback Java from PATH");
                 } else {
                     return LaunchStepResult::Failed(
@@ -243,7 +245,7 @@ impl LaunchStep for CheckJavaStep {
             let java_exe = if cfg!(target_os = "windows") { "java.exe" } else { "java" };
             if let Ok(path) = which::which(java_exe) {
                 java_path = Some(path);
-                per_instance = false;
+                _per_instance = false;
             } else {
                 return LaunchStepResult::Failed(
                     "No Java installation found in PATH.\n\

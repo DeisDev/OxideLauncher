@@ -55,6 +55,7 @@ pub struct Checksum {
 }
 
 impl Checksum {
+    #[allow(dead_code)] // Part of public API
     pub fn sha1(hash: &str) -> Self {
         Self {
             hash_type: "sha1".to_string(),
@@ -69,6 +70,7 @@ impl Checksum {
         }
     }
     
+    #[allow(dead_code)] // Part of public API
     pub fn is_empty(&self) -> bool {
         self.hash.is_empty()
     }
@@ -154,11 +156,13 @@ pub struct JavaMetadata {
 
 impl JavaMetadata {
     /// Get a display-friendly identifier
+    #[allow(dead_code)] // Part of public API
     pub fn descriptor(&self) -> String {
         format!("{} {} ({})", self.vendor, self.version, self.package_type)
     }
     
     /// Check if this metadata matches the current OS
+    #[allow(dead_code)] // Part of public API
     pub fn matches_current_os(&self) -> bool {
         let current = get_current_runtime_os();
         self.runtime_os == current
@@ -204,6 +208,7 @@ impl Ord for JavaMetadata {
 }
 
 /// Get the current runtime OS identifier
+#[allow(dead_code)] // Part of public API
 pub fn get_current_runtime_os() -> String {
     let os = if cfg!(target_os = "windows") {
         "windows"
@@ -297,6 +302,7 @@ pub fn parse_adoptium_metadata(json: &serde_json::Value) -> Option<JavaMetadata>
 }
 
 /// Parse Java metadata from Azul API response
+#[allow(dead_code)] // Part of public API for Azul downloads
 pub fn parse_azul_metadata(json: &serde_json::Value) -> Option<JavaMetadata> {
     let version_str = json.get("java_version")?.as_array()?
         .iter()

@@ -79,7 +79,7 @@ impl JavaVersion {
         }
         
         // Choose pattern based on version format
-        let (pattern, captures) = if trimmed.starts_with("1.") {
+        let (_pattern, captures) = if trimmed.starts_with("1.") {
             (&*WITH_ONE_PREFIX, WITH_ONE_PREFIX.captures(trimmed))
         } else {
             (&*WITHOUT_ONE_PREFIX, WITHOUT_ONE_PREFIX.captures(trimmed))
@@ -112,16 +112,19 @@ impl JavaVersion {
     }
     
     /// Check if this Java version requires PermGen space (Java < 8)
+    #[allow(dead_code)] // Part of public API for Java compatibility checks
     pub fn requires_permgen(&self) -> bool {
         !self.parseable || self.major < 8
     }
     
     /// Check if this Java defaults to UTF-8 (Java >= 18)
+    #[allow(dead_code)] // Part of public API for Java compatibility checks
     pub fn defaults_to_utf8(&self) -> bool {
         self.parseable && self.major >= 18
     }
     
     /// Check if this Java is modular (Java >= 9)
+    #[allow(dead_code)] // Part of public API for Java compatibility checks
     pub fn is_modular(&self) -> bool {
         self.parseable && self.major >= 9
     }
@@ -132,6 +135,7 @@ impl JavaVersion {
     }
     
     /// Get the major version or 0 if not parseable
+    #[allow(dead_code)] // Part of public API for version queries
     pub fn major_version(&self) -> u32 {
         if self.parseable { self.major } else { 0 }
     }

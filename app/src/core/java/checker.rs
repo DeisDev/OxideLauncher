@@ -9,7 +9,7 @@ use std::time::Duration;
 use tokio::process::Command;
 use tokio::time::timeout;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, warn};
+use tracing::debug;
 use crate::core::java::install::{JavaInstallation, JavaArch, JavaValidationResult};
 use crate::core::java::version::JavaVersion;
 
@@ -114,12 +114,14 @@ impl JavaChecker {
     }
     
     /// Set additional JVM arguments
+    #[allow(dead_code)] // Part of public API for future use
     pub fn with_args(mut self, args: Vec<String>) -> Self {
         self.args = args;
         self
     }
     
     /// Set memory limits
+    #[allow(dead_code)] // Part of public API for future use
     pub fn with_memory(mut self, min_mb: u32, max_mb: u32) -> Self {
         self.min_mem = Some(min_mb);
         self.max_mem = Some(max_mb);
@@ -165,14 +167,15 @@ impl JavaChecker {
         // Hide console window on Windows
         #[cfg(target_os = "windows")]
         {
+            #[allow(unused_imports)]
             use std::os::windows::process::CommandExt;
             const CREATE_NO_WINDOW: u32 = 0x08000000;
             command.creation_flags(CREATE_NO_WINDOW);
         }
         
         let process_result = command.spawn();
-        
-        let mut child = match process_result {
+
+        let child = match process_result {
             Ok(child) => child,
             Err(e) => {
                 result.error = Some(format!("Failed to start Java process: {}", e));
@@ -232,6 +235,7 @@ impl JavaChecker {
     }
     
     /// Check and convert to JavaInstallation
+    #[allow(dead_code)] // Part of public API for conversion
     pub async fn check_and_install(&self) -> Option<JavaInstallation> {
         let result = self.check().await;
         result.to_installation()
@@ -322,6 +326,7 @@ fn parse_java_output(output: &str) -> Option<ParsedJavaOutput> {
 }
 
 /// Check multiple Java installations concurrently
+#[allow(dead_code)] // Part of public API for batch validation
 pub async fn check_multiple_java(paths: Vec<PathBuf>, max_concurrent: usize) -> Vec<JavaCheckResult> {
     use futures::stream::{self, StreamExt};
     
@@ -340,6 +345,7 @@ pub async fn check_multiple_java(paths: Vec<PathBuf>, max_concurrent: usize) -> 
 }
 
 /// Validate a Java installation and return detailed result
+#[allow(dead_code)] // Part of public API for detailed validation
 pub async fn validate_java_installation(installation: &JavaInstallation) -> JavaValidationResult {
     if !installation.path.exists() {
         return JavaValidationResult::failure(

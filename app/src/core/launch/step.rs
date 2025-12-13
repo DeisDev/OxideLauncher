@@ -1,11 +1,13 @@
 //! Launch step trait and types
 
 use async_trait::async_trait;
+#[allow(unused_imports)] // May be used by implementations
 use crate::core::error::Result;
 use super::{LaunchContext, MessageLevel};
 
 /// Result of a launch step execution
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Variants reserved for future use
 pub enum LaunchStepResult {
     /// Step completed successfully
     Success,
@@ -19,6 +21,7 @@ pub enum LaunchStepResult {
 
 /// A step in the launch process
 #[async_trait]
+#[allow(dead_code)] // Trait methods part of public API
 pub trait LaunchStep: Send + Sync {
     /// Get the name of this step for display purposes
     fn name(&self) -> &'static str;
@@ -58,6 +61,7 @@ pub trait LaunchStep: Send + Sync {
 
 /// A log message from a launch step
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Fields used for log output
 pub struct LogMessage {
     pub level: MessageLevel,
     pub message: String,

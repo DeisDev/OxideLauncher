@@ -17,13 +17,6 @@ import {
   AlertDialogTitle,
   AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
 import { Switch } from "@/components/ui/switch";
 
@@ -115,7 +108,7 @@ export function SettingsView() {
     setDownloadProgress("Starting download...");
     
     try {
-      const installation = await invoke<JavaInstallation>("download_java", {
+      await invoke<JavaInstallation>("download_java", {
         majorVersion,
       });
       

@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 use std::collections::HashSet;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 use crate::core::java::install::{JavaInstallation, JavaArch};
 use crate::core::java::version::JavaVersion;
 
@@ -589,12 +589,14 @@ fn get_windows_java_candidates() -> Vec<PathBuf> {
 
 /// Stub for non-macOS platforms  
 #[cfg(not(target_os = "macos"))]
+#[allow(dead_code)] // Platform-specific stub, needed for cross-compilation
 fn get_macos_java_candidates() -> Vec<PathBuf> {
     Vec::new()
 }
 
 /// Stub for non-Linux platforms
 #[cfg(not(target_os = "linux"))]
+#[allow(dead_code)] // Platform-specific stub, needed for cross-compilation
 fn get_linux_java_candidates() -> Vec<PathBuf> {
     Vec::new()
 }

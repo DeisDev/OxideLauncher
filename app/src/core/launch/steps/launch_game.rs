@@ -3,9 +3,9 @@
 use async_trait::async_trait;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
-use crate::core::launch::{LaunchContext, LaunchStep, LaunchStepResult, MessageLevel};
+use crate::core::launch::{LaunchContext, LaunchStep, LaunchStepResult};
 use crate::core::minecraft::version::{fetch_version_manifest, fetch_version_data, ArgumentValue, ArgumentValueInner};
 use crate::core::minecraft::libraries::build_classpath;
 
@@ -86,8 +86,8 @@ impl LaunchGameStep {
     fn build_game_args(&self, context: &LaunchContext, version_data: &crate::core::minecraft::version::VersionData) -> Vec<String> {
         let mut args = Vec::new();
         let instance = &context.instance;
-        let game_dir = instance.game_dir();
-        let assets_dir = &context.assets_dir;
+        let _game_dir = instance.game_dir(); // Used in substitute_game_variable
+        let _assets_dir = &context.assets_dir; // Used in substitute_game_variable
         
         // Process game arguments
         if let Some(ref arguments) = version_data.arguments {
@@ -314,6 +314,7 @@ impl Default for LaunchGameStep {
 
 /// Get the child process (for external monitoring)
 impl LaunchGameStep {
+    #[allow(dead_code)] // Part of public API for process monitoring
     pub fn get_process(&self) -> Option<Arc<Mutex<Child>>> {
         self.process.clone()
     }

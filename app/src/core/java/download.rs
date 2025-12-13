@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use tokio::sync::mpsc;
 use tokio::io::AsyncWriteExt;
 use futures::StreamExt;
-use tracing::{debug, info, warn, error};
+use tracing::{debug, info};
 use serde::{Deserialize, Serialize};
 use crate::core::java::metadata::{JavaMetadata, DownloadType, get_current_arch, get_current_os};
 use crate::core::java::install::JavaInstallation;
@@ -383,7 +383,7 @@ fn extract_tar_gz(archive_path: &Path, dest_dir: &Path) -> Result<()> {
     
     let file = std::fs::File::open(archive_path)?;
     let gz = GzDecoder::new(file);
-    let mut archive = Archive::new(gz);
+    let _archive = Archive::new(gz);
     
     // First pass: find root directory
     let mut root_dir: Option<String> = None;

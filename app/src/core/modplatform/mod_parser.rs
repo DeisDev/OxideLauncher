@@ -325,12 +325,14 @@ struct FabricModJson {
 
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
+#[allow(dead_code)] // Fields used during deserialization
 enum AuthorEntry {
     String(String),
     Object { name: String, contact: Option<ContactInfo> },
 }
 
 #[derive(Debug, Default, Deserialize)]
+#[allow(dead_code)] // Fields used during deserialization
 struct ContactInfo {
     homepage: Option<String>,
     issues: Option<String>,
@@ -340,6 +342,7 @@ struct ContactInfo {
 
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
+#[allow(dead_code)] // Fields used during deserialization
 enum LicenseEntry {
     String(String),
     Object { id: String, name: Option<String>, url: Option<String> },

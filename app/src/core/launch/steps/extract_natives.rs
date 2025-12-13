@@ -2,7 +2,7 @@
 
 use async_trait::async_trait;
 use std::fs::{self, File};
-use std::io::{self, Read};
+use std::io;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
 use zip::ZipArchive;
