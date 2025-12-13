@@ -7,6 +7,7 @@ use crate::core::{
     minecraft::version::{fetch_version_manifest, VersionType},
     modloaders,
 };
+use tauri::Emitter;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -221,12 +222,11 @@ pub async fn launch_instance(
     instance_id: String,
 ) -> Result<(), String> {
     use std::io::{BufRead, BufReader};
-    use std::process::{Command, Stdio};
+    use std::process::Stdio;
     use crate::core::{
-        minecraft::version::{fetch_version_manifest, fetch_version_data},
-        minecraft::libraries::build_classpath,
         accounts::AuthSession,
         config::Config,
+        launch::{LaunchContext, steps::create_default_launch_task},
     };
     
     // Find instance
@@ -238,134 +238,45 @@ pub async fn launch_instance(
             .clone()
     };
     
-    let _config = Config::default();
+    // Load config
+    let config = Config::load().unwrap_or_default();
     
-    // Get version data
-    let manifest = fetch_version_manifest().await
-        .map_err(|e| format!("Failed to fetch version manifest: {}", e))?;
-    let version_info = manifest.get_version(&instance.minecraft_version)
-        .ok_or_else(|| format!("Version {} not found", instance.minecraft_version))?;
-    let version_data = fetch_version_data(version_info).await
-        .map_err(|e| format!("Failed to fetch version data: {}", e))?;
-    
-    // Setup paths
-    let game_dir = instance.game_dir();
-    let libraries_dir = state.data_dir.join("libraries");
-    let assets_dir = state.data_dir.join("assets");
-    let client_jar = state.data_dir
-        .join("meta")
-        .join("versions")
-        .join(&instance.minecraft_version)
-        .join(format!("{}.jar", &instance.minecraft_version));
-    
-    // Build classpath
-    let classpath = build_classpath(&version_data, &libraries_dir, &client_jar);
-    
-    // Create offline auth session (since we don't have auth yet)
+    // Create auth session (offline for now until auth is implemented)
     let auth_session = AuthSession::offline("Player");
     
-    // Build Java arguments
-    let mut args = Vec::new();
+    // Create launch context
+    let context = LaunchContext::new(instance.clone(), auth_session, config);
     
-    // Memory settings
-    args.push(format!("-Xms{}M", instance.settings.min_memory.unwrap_or(512)));
-    args.push(format!("-Xmx{}M", instance.settings.max_memory.unwrap_or(2048)));
+    // Create and execute launch task
+    let mut launch_task = create_default_launch_task(context);
     
-    // Natives directory
-    let natives_dir = game_dir.join("natives");
-    args.push(format!("-Djava.library.path={}", natives_dir.to_string_lossy()));
+    // Take log receiver for monitoring
+    let log_receiver = launch_task.take_log_receiver();
     
-    // Classpath
-    args.push("-cp".to_string());
-    args.push(classpath);
-    
-    // Main class
-    args.push(version_data.main_class.clone());
-    
-    // Game arguments
-    args.push("--username".to_string());
-    args.push(auth_session.username.clone());
-    args.push("--version".to_string());
-    args.push(instance.minecraft_version.clone());
-    args.push("--gameDir".to_string());
-    args.push(game_dir.to_string_lossy().to_string());
-    args.push("--assetsDir".to_string());
-    args.push(assets_dir.join("objects").to_string_lossy().to_string());
-    args.push("--assetIndex".to_string());
-    args.push(version_data.assets.clone());
-    args.push("--uuid".to_string());
-    args.push(auth_session.uuid.clone());
-    args.push("--accessToken".to_string());
-    args.push(auth_session.access_token.clone());
-    args.push("--userType".to_string());
-    args.push(auth_session.user_type.clone());
-    
-    // Window size if specified
-    if let Some(width) = instance.settings.window_width {
-        args.push("--width".to_string());
-        args.push(width.to_string());
-    }
-    if let Some(height) = instance.settings.window_height {
-        args.push("--height".to_string());
-        args.push(height.to_string());
+    // Execute launch task
+    match launch_task.execute().await {
+        Ok(_) => {
+            tracing::info!("Launch task completed successfully");
+        }
+        Err(e) => {
+            return Err(format!("Launch failed: {}", e));
+        }
     }
     
-    // Find Java
-    let java_exe = if cfg!(target_os = "windows") { "java.exe" } else { "java" };
-    let java_path = which::which(java_exe)
-        .map_err(|_| "No Java installation found".to_string())?;
-    
-    // Launch the game
-    let mut child = Command::new(&java_path)
-        .args(&args)
-        .current_dir(&game_dir)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("Failed to start game: {}", e))?;
-    
-    // Capture stdout and stderr
-    let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
-    let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
-    
+    // Get the game process from the launch step
+    // For now, we'll create a placeholder process tracking
     let logs = Arc::new(Mutex::new(Vec::new()));
-    let logs_clone = logs.clone();
     
-    // Read stdout in background
-    let stdout_logs = logs.clone();
-    tokio::spawn(async move {
-        let reader = BufReader::new(stdout);
-        for line in reader.lines() {
-            if let Ok(line) = line {
-                if let Ok(mut logs) = stdout_logs.lock() {
-                    logs.push(line);
+    // Monitor logs in background
+    if let Some(mut receiver) = log_receiver {
+        let logs_clone = logs.clone();
+        tokio::spawn(async move {
+            while let Some(msg) = receiver.recv().await {
+                if let Ok(mut logs) = logs_clone.lock() {
+                    logs.push(format!("[{}] {}", msg.level, msg.message));
                 }
             }
-        }
-    });
-    
-    // Read stderr in background
-    let stderr_logs = logs.clone();
-    tokio::spawn(async move {
-        let reader = BufReader::new(stderr);
-        for line in reader.lines() {
-            if let Ok(line) = line {
-                if let Ok(mut logs) = stderr_logs.lock() {
-                    logs.push(format!("[ERROR] {}", line));
-                }
-            }
-        }
-    });
-    
-    // Store process in state
-    let process = RunningProcess {
-        child,
-        logs: logs_clone,
-    };
-    
-    {
-        let mut processes = state.running_processes.lock().unwrap();
-        processes.insert(instance_id.clone(), Arc::new(Mutex::new(process)));
+        });
     }
     
     Ok(())
@@ -520,28 +431,6 @@ pub async fn export_instance(
     zip.finish().map_err(|e| format!("Failed to finish zip: {}", e))?;
     
     Ok(())
-}
-
-#[tauri::command]
-pub async fn create_instance_shortcut(
-    state: State<'_, AppState>,
-    instance_id: String,
-) -> Result<(), String> {
-    let instances = state.instances.lock().unwrap();
-    let _instance = instances.iter().find(|i| i.id == instance_id)
-        .ok_or_else(|| "Instance not found".to_string())?;
-    
-    #[cfg(target_os = "windows")]
-    {
-        // Create .lnk shortcut on Windows
-        // This would require mslnk or similar crate
-        return Err("Shortcut creation not yet implemented for Windows".to_string());
-    }
-    
-    #[cfg(not(target_os = "windows"))]
-    {
-        return Err("Shortcut creation not yet implemented for this platform".to_string());
-    }
 }
 
 #[tauri::command]
@@ -1304,4 +1193,887 @@ pub async fn add_local_mod(
     std::fs::copy(source, dest).map_err(|e| format!("Failed to copy mod: {}", e))?;
     
     Ok(())
+}
+
+// ============================================================================
+// Java Management Commands
+// ============================================================================
+
+/// Serializable Java installation info for frontend
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JavaInstallationInfo {
+    pub id: String,
+    pub path: String,
+    pub version: String,
+    pub major_version: u32,
+    pub arch: String,
+    pub vendor: String,
+    pub is_64bit: bool,
+    pub is_managed: bool,
+    pub recommended: bool,
+}
+
+impl From<crate::core::java::JavaInstallation> for JavaInstallationInfo {
+    fn from(install: crate::core::java::JavaInstallation) -> Self {
+        Self {
+            id: install.id.clone(),
+            path: install.path.to_string_lossy().to_string(),
+            version: install.version.to_string(),
+            major_version: install.version.major,
+            arch: install.arch.to_string(),
+            vendor: install.vendor.clone(),
+            is_64bit: install.arch.is_64bit(),
+            is_managed: install.is_managed,
+            recommended: install.recommended,
+        }
+    }
+}
+
+/// Available Java version for download
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AvailableJavaInfo {
+    pub major: u32,
+    pub name: String,
+    pub is_lts: bool,
+}
+
+/// Detect all Java installations on the system
+#[tauri::command]
+pub async fn detect_java() -> Result<Vec<JavaInstallationInfo>, String> {
+    use crate::core::java::detection::detect_java_installations;
+    
+    let installations = detect_java_installations();
+    
+    Ok(installations.into_iter().map(JavaInstallationInfo::from).collect())
+}
+
+/// Find Java that meets a version requirement
+#[tauri::command]
+pub async fn find_java_for_minecraft(minecraft_version: String) -> Result<Option<JavaInstallationInfo>, String> {
+    use crate::core::java::detection::{find_java_for_minecraft, get_required_java_version};
+    
+    let required = get_required_java_version(&minecraft_version);
+    
+    if let Some(java) = find_java_for_minecraft(&minecraft_version) {
+        Ok(Some(JavaInstallationInfo::from(java)))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Get required Java version for a Minecraft version
+#[tauri::command]
+pub fn get_required_java(minecraft_version: String) -> u32 {
+    crate::core::java::detection::get_required_java_version(&minecraft_version)
+}
+
+/// Validate a Java installation
+#[tauri::command]
+pub async fn validate_java(java_path: String) -> Result<JavaInstallationInfo, String> {
+    use crate::core::java::checker::JavaChecker;
+    use std::path::PathBuf;
+    
+    let path = PathBuf::from(&java_path);
+    
+    if !path.exists() {
+        return Err("Java executable does not exist".to_string());
+    }
+    
+    let checker = JavaChecker::new(path);
+    let result = checker.check().await;
+    
+    if result.valid {
+        if let Some(installation) = result.to_installation() {
+            return Ok(JavaInstallationInfo::from(installation));
+        }
+    }
+    
+    Err(result.error.unwrap_or_else(|| "Java validation failed".to_string()))
+}
+
+/// Fetch available Java versions for download
+#[tauri::command]
+pub async fn fetch_available_java_versions() -> Result<Vec<AvailableJavaInfo>, String> {
+    use crate::core::java::download::fetch_adoptium_versions;
+    
+    let versions = fetch_adoptium_versions()
+        .await
+        .map_err(|e| e.to_string())?;
+    
+    Ok(versions.into_iter().map(|v| AvailableJavaInfo {
+        major: v.major,
+        name: v.name,
+        is_lts: v.is_lts,
+    }).collect())
+}
+
+/// Download and install Java
+#[tauri::command]
+pub async fn download_java(
+    major_version: u32,
+    app: tauri::AppHandle,
+) -> Result<JavaInstallationInfo, String> {
+    use crate::core::java::download::{fetch_adoptium_download, download_java as do_download};
+    use tokio::sync::mpsc;
+    
+    // Fetch download metadata
+    let metadata = fetch_adoptium_download(major_version)
+        .await
+        .map_err(|e| e.to_string())?;
+    
+    // Create progress channel
+    let (tx, mut rx) = mpsc::channel(100);
+    
+    // Spawn progress event emitter
+    let app_clone = app.clone();
+    tokio::spawn(async move {
+        while let Some(progress) = rx.recv().await {
+            let _ = app_clone.emit("java-download-progress", &progress);
+        }
+    });
+    
+    // Download Java
+    let installation = do_download(&metadata, Some(tx))
+        .await
+        .map_err(|e| e.to_string())?;
+    
+    Ok(JavaInstallationInfo::from(installation))
+}
+
+/// Get the path to the managed Java directory
+#[tauri::command]
+pub fn get_java_install_dir() -> Result<String, String> {
+    use crate::core::java::download::get_java_install_dir;
+    
+    let dir = get_java_install_dir().map_err(|e| e.to_string())?;
+    Ok(dir.to_string_lossy().to_string())
+}
+
+/// Delete a managed Java installation
+#[tauri::command]
+pub async fn delete_java(java_path: String) -> Result<(), String> {
+    use crate::core::java::download::delete_java_installation;
+    use crate::core::java::install::JavaInstallation;
+    use std::path::PathBuf;
+    
+    // Create a minimal installation struct for deletion
+    let mut installation = JavaInstallation::default();
+    installation.path = PathBuf::from(&java_path);
+    installation.is_managed = true;
+    
+    delete_java_installation(&installation)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// =============================================================================
+// World Management Commands
+// =============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorldInfo {
+    pub folder_name: String,
+    pub name: String,
+    pub seed: Option<i64>,
+    pub game_type: String,
+    pub hardcore: bool,
+    pub last_played: Option<String>,
+    pub size: String,
+    pub has_icon: bool,
+}
+
+/// List worlds for an instance
+#[tauri::command]
+pub async fn list_worlds(
+    state: State<'_, AppState>,
+    instance_id: String,
+) -> Result<Vec<WorldInfo>, String> {
+    use crate::core::minecraft::world;
+    
+    // Get instance
+    let instance = {
+        let instances = state.instances.lock().unwrap();
+        instances.iter()
+            .find(|i| i.id == instance_id)
+            .ok_or_else(|| "Instance not found".to_string())?
+            .clone()
+    };
+    
+    let saves_dir = instance.game_dir().join("saves");
+    let worlds = world::list_worlds(&saves_dir);
+    
+    let world_infos: Vec<WorldInfo> = worlds.into_iter().map(|w| {
+        let last_played = w.formatted_last_played();
+        let size = w.formatted_size();
+        WorldInfo {
+            folder_name: w.folder_name,
+            name: w.name,
+            seed: w.seed,
+            game_type: w.game_type.to_string(),
+            hardcore: w.hardcore,
+            last_played,
+            size,
+            has_icon: w.has_icon,
+        }
+    }).collect();
+    
+    Ok(world_infos)
+}
+
+/// Delete a world
+#[tauri::command]
+pub async fn delete_world(
+    state: State<'_, AppState>,
+    instance_id: String,
+    folder_name: String,
+) -> Result<(), String> {
+    use crate::core::minecraft::world;
+    
+    // Get instance
+    let instance = {
+        let instances = state.instances.lock().unwrap();
+        instances.iter()
+            .find(|i| i.id == instance_id)
+            .ok_or_else(|| "Instance not found".to_string())?
+            .clone()
+    };
+    
+    let saves_dir = instance.game_dir().join("saves");
+    world::delete_world(&saves_dir, &folder_name)
+        .map_err(|e| e.to_string())
+}
+
+/// Export a world to a ZIP file
+#[tauri::command]
+pub async fn export_world(
+    state: State<'_, AppState>,
+    instance_id: String,
+    folder_name: String,
+    output_path: String,
+) -> Result<(), String> {
+    use crate::core::minecraft::world;
+    use std::path::PathBuf;
+    
+    // Get instance
+    let instance = {
+        let instances = state.instances.lock().unwrap();
+        instances.iter()
+            .find(|i| i.id == instance_id)
+            .ok_or_else(|| "Instance not found".to_string())?
+            .clone()
+    };
+    
+    let saves_dir = instance.game_dir().join("saves");
+    let output = PathBuf::from(output_path);
+    
+    world::export_world(&saves_dir, &folder_name, &output)
+        .map_err(|e| e.to_string())
+}
+
+/// Copy/duplicate a world
+#[tauri::command]
+pub async fn copy_world(
+    state: State<'_, AppState>,
+    instance_id: String,
+    folder_name: String,
+    new_name: String,
+) -> Result<(), String> {
+    use crate::core::minecraft::world;
+    
+    // Get instance
+    let instance = {
+        let instances = state.instances.lock().unwrap();
+        instances.iter()
+            .find(|i| i.id == instance_id)
+            .ok_or_else(|| "Instance not found".to_string())?
+            .clone()
+    };
+    
+    let saves_dir = instance.game_dir().join("saves");
+    world::copy_world(&saves_dir, &folder_name, &new_name)
+        .map_err(|e| e.to_string())
+}
+
+/// Get world icon as base64
+#[tauri::command]
+pub async fn get_world_icon(
+    state: State<'_, AppState>,
+    instance_id: String,
+    folder_name: String,
+) -> Result<Option<String>, String> {
+    use crate::core::minecraft::world;
+    
+    // Get instance
+    let instance = {
+        let instances = state.instances.lock().unwrap();
+        instances.iter()
+            .find(|i| i.id == instance_id)
+            .ok_or_else(|| "Instance not found".to_string())?
+            .clone()
+    };
+    
+    let saves_dir = instance.game_dir().join("saves");
+    Ok(world::get_world_icon(&saves_dir, &folder_name))
+}
+
+// =============================================================================
+// Resource Pack Management Commands
+// =============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourcePackInfo {
+    pub filename: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub size: String,
+    pub enabled: bool,
+}
+
+/// List resource packs for an instance
+#[tauri::command]
+pub async fn list_resource_packs(
+    state: State<'_, AppState>,
+    instance_id: String,
+) -> Result<Vec<ResourcePackInfo>, String> {
+    // Get instance
+    let instance = {
+        let instances = state.instances.lock().unwrap();
+        instances.iter()
+            .find(|i| i.id == instance_id)
+            .ok_or_else(|| "Instance not found".to_string())?
+            .clone()
+    };
+    
+    let resourcepacks_dir = instance.game_dir().join("resourcepacks");
+    if !resourcepacks_dir.exists() {
+        return Ok(Vec::new());
+    }
+    
+    let mut packs = Vec::new();
+    
+    if let Ok(entries) = std::fs::read_dir(&resourcepacks_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let filename = entry.file_name().to_string_lossy().to_string();
+            
+            // Skip disabled packs marker files
+            if filename.starts_with('.') {
+                continue;
+            }
+            
+            // Check if it's a ZIP or folder
+            let is_valid = path.is_dir() || 
+                filename.to_lowercase().ends_with(".zip");
+            
+            if is_valid {
+                let size = if path.is_file() {
+                    entry.metadata().map(|m| m.len()).unwrap_or(0)
+                } else {
+                    0 // Skip size calculation for folders for performance
+                };
+                
+                packs.push(ResourcePackInfo {
+                    filename: filename.clone(),
+                    name: filename.trim_end_matches(".zip").to_string(),
+                    description: None, // Could parse pack.mcmeta but skip for now
+                    size: format_file_size(size),
+                    enabled: true, // All packs in folder are "available"
+                });
+            }
+        }
+    }
+    
+    packs.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    Ok(packs)
+}
+
+/// Delete a resource pack
+#[tauri::command]
+pub async fn delete_resource_pack(
+    state: State<'_, AppState>,
+    instance_id: String,
+    filename: String,
+) -> Result<(), String> {
+    // Get instance
+    let instance = {
+        let instances = state.instances.lock().unwrap();
+        instances.iter()
+            .find(|i| i.id == instance_id)
+            .ok_or_else(|| "Instance not found".to_string())?
+            .clone()
+    };
+    
+    let pack_path = instance.game_dir().join("resourcepacks").join(&filename);
+    
+    if !pack_path.exists() {
+        return Err(format!("Resource pack '{}' not found", filename));
+    }
+    
+    if pack_path.is_dir() {
+        std::fs::remove_dir_all(&pack_path).map_err(|e| e.to_string())?;
+    } else {
+        std::fs::remove_file(&pack_path).map_err(|e| e.to_string())?;
+    }
+    
+    Ok(())
+}
+
+// =============================================================================
+// Shader Pack Management Commands
+// =============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShaderPackInfo {
+    pub filename: String,
+    pub name: String,
+    pub size: String,
+}
+
+/// List shader packs for an instance
+#[tauri::command]
+pub async fn list_shader_packs(
+    state: State<'_, AppState>,
+    instance_id: String,
+) -> Result<Vec<ShaderPackInfo>, String> {
+    // Get instance
+    let instance = {
+        let instances = state.instances.lock().unwrap();
+        instances.iter()
+            .find(|i| i.id == instance_id)
+            .ok_or_else(|| "Instance not found".to_string())?
+            .clone()
+    };
+    
+    let shaderpacks_dir = instance.game_dir().join("shaderpacks");
+    if !shaderpacks_dir.exists() {
+        return Ok(Vec::new());
+    }
+    
+    let mut packs = Vec::new();
+    
+    if let Ok(entries) = std::fs::read_dir(&shaderpacks_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let filename = entry.file_name().to_string_lossy().to_string();
+            
+            // Skip hidden files
+            if filename.starts_with('.') {
+                continue;
+            }
+            
+            // Check if it's a ZIP or folder
+            let is_valid = path.is_dir() || 
+                filename.to_lowercase().ends_with(".zip");
+            
+            if is_valid {
+                let size = if path.is_file() {
+                    entry.metadata().map(|m| m.len()).unwrap_or(0)
+                } else {
+                    0
+                };
+                
+                packs.push(ShaderPackInfo {
+                    filename: filename.clone(),
+                    name: filename.trim_end_matches(".zip").to_string(),
+                    size: format_file_size(size),
+                });
+            }
+        }
+    }
+    
+    packs.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    Ok(packs)
+}
+
+/// Delete a shader pack
+#[tauri::command]
+pub async fn delete_shader_pack(
+    state: State<'_, AppState>,
+    instance_id: String,
+    filename: String,
+) -> Result<(), String> {
+    // Get instance
+    let instance = {
+        let instances = state.instances.lock().unwrap();
+        instances.iter()
+            .find(|i| i.id == instance_id)
+            .ok_or_else(|| "Instance not found".to_string())?
+            .clone()
+    };
+    
+    let pack_path = instance.game_dir().join("shaderpacks").join(&filename);
+    
+    if !pack_path.exists() {
+        return Err(format!("Shader pack '{}' not found", filename));
+    }
+    
+    if pack_path.is_dir() {
+        std::fs::remove_dir_all(&pack_path).map_err(|e| e.to_string())?;
+    } else {
+        std::fs::remove_file(&pack_path).map_err(|e| e.to_string())?;
+    }
+    
+    Ok(())
+}
+
+// =============================================================================
+// Screenshots Management Commands
+// =============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScreenshotInfo {
+    pub filename: String,
+    pub path: String,
+    pub timestamp: Option<String>,
+    pub size: String,
+}
+
+/// List screenshots for an instance
+#[tauri::command]
+pub async fn list_screenshots(
+    state: State<'_, AppState>,
+    instance_id: String,
+) -> Result<Vec<ScreenshotInfo>, String> {
+    // Get instance
+    let instance = {
+        let instances = state.instances.lock().unwrap();
+        instances.iter()
+            .find(|i| i.id == instance_id)
+            .ok_or_else(|| "Instance not found".to_string())?
+            .clone()
+    };
+    
+    let screenshots_dir = instance.game_dir().join("screenshots");
+    if !screenshots_dir.exists() {
+        return Ok(Vec::new());
+    }
+    
+    let mut screenshots = Vec::new();
+    
+    if let Ok(entries) = std::fs::read_dir(&screenshots_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let filename = entry.file_name().to_string_lossy().to_string();
+            
+            // Only include PNG files
+            if !filename.to_lowercase().ends_with(".png") {
+                continue;
+            }
+            
+            let metadata = entry.metadata().ok();
+            let size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
+            let timestamp = metadata.and_then(|m| m.modified().ok())
+                .map(|t| {
+                    let datetime: chrono::DateTime<chrono::Local> = t.into();
+                    datetime.format("%Y-%m-%d %H:%M").to_string()
+                });
+            
+            screenshots.push(ScreenshotInfo {
+                filename: filename.clone(),
+                path: path.to_string_lossy().to_string(),
+                timestamp,
+                size: format_file_size(size),
+            });
+        }
+    }
+    
+    // Sort by filename (which includes timestamp for Minecraft screenshots)
+    screenshots.sort_by(|a, b| b.filename.cmp(&a.filename));
+    Ok(screenshots)
+}
+
+/// Delete a screenshot
+#[tauri::command]
+pub async fn delete_screenshot(
+    state: State<'_, AppState>,
+    instance_id: String,
+    filename: String,
+) -> Result<(), String> {
+    // Get instance
+    let instance = {
+        let instances = state.instances.lock().unwrap();
+        instances.iter()
+            .find(|i| i.id == instance_id)
+            .ok_or_else(|| "Instance not found".to_string())?
+            .clone()
+    };
+    
+    let screenshot_path = instance.game_dir().join("screenshots").join(&filename);
+    
+    if !screenshot_path.exists() {
+        return Err(format!("Screenshot '{}' not found", filename));
+    }
+    
+    std::fs::remove_file(&screenshot_path).map_err(|e| e.to_string())
+}
+
+/// Open screenshots folder in file explorer
+#[tauri::command]
+pub async fn open_screenshots_folder(
+    state: State<'_, AppState>,
+    instance_id: String,
+) -> Result<(), String> {
+    // Get instance
+    let instance = {
+        let instances = state.instances.lock().unwrap();
+        instances.iter()
+            .find(|i| i.id == instance_id)
+            .ok_or_else(|| "Instance not found".to_string())?
+            .clone()
+    };
+    
+    let screenshots_dir = instance.game_dir().join("screenshots");
+    
+    // Create directory if it doesn't exist
+    if !screenshots_dir.exists() {
+        std::fs::create_dir_all(&screenshots_dir).map_err(|e| e.to_string())?;
+    }
+    
+    open::that(&screenshots_dir).map_err(|e| e.to_string())
+}
+
+// =============================================================================
+// Shortcut Creation Commands
+// =============================================================================
+
+/// Create a desktop shortcut for an instance
+#[tauri::command]
+pub async fn create_instance_shortcut(
+    state: State<'_, AppState>,
+    instance_id: String,
+    location: String, // "desktop" or "start_menu"
+) -> Result<(), String> {
+    // Get instance
+    let instance = {
+        let instances = state.instances.lock().unwrap();
+        instances.iter()
+            .find(|i| i.id == instance_id)
+            .ok_or_else(|| "Instance not found".to_string())?
+            .clone()
+    };
+    
+    let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
+    
+    #[cfg(target_os = "windows")]
+    {
+        create_windows_shortcut(&instance, &exe_path, &location)
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        create_linux_shortcut(&instance, &exe_path, &location)
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        // macOS shortcut creation is more complex (requires creating .app bundle)
+        Err("Shortcut creation on macOS is not yet implemented".to_string())
+    }
+    
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    {
+        Err("Shortcut creation is not supported on this platform".to_string())
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn create_windows_shortcut(
+    instance: &Instance,
+    exe_path: &std::path::Path,
+    location: &str,
+) -> Result<(), String> {
+    use std::process::Command;
+    
+    let shortcut_dir = match location {
+        "desktop" => dirs::desktop_dir().ok_or("Could not find desktop directory")?,
+        "start_menu" => {
+            let app_data = dirs::data_dir().ok_or("Could not find app data directory")?;
+            app_data.join("Microsoft").join("Windows").join("Start Menu").join("Programs")
+        }
+        _ => return Err(format!("Unknown location: {}", location)),
+    };
+    
+    let shortcut_path = shortcut_dir.join(format!("{}.lnk", instance.name));
+    let args = format!("--launch {}", instance.id);
+    
+    // Use PowerShell to create the shortcut
+    let script = format!(
+        r#"
+        $WshShell = New-Object -comObject WScript.Shell
+        $Shortcut = $WshShell.CreateShortcut("{}")
+        $Shortcut.TargetPath = "{}"
+        $Shortcut.Arguments = "{}"
+        $Shortcut.WorkingDirectory = "{}"
+        $Shortcut.Description = "Launch {} in OxideLauncher"
+        $Shortcut.Save()
+        "#,
+        shortcut_path.to_string_lossy().replace("\\", "\\\\"),
+        exe_path.to_string_lossy().replace("\\", "\\\\"),
+        args,
+        exe_path.parent().unwrap_or(exe_path).to_string_lossy().replace("\\", "\\\\"),
+        instance.name
+    );
+    
+    let output = Command::new("powershell")
+        .args(["-NoProfile", "-Command", &script])
+        .output()
+        .map_err(|e| format!("Failed to run PowerShell: {}", e))?;
+    
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Failed to create shortcut: {}", stderr));
+    }
+    
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn create_linux_shortcut(
+    instance: &Instance,
+    exe_path: &std::path::Path,
+    location: &str,
+) -> Result<(), String> {
+    let shortcut_dir = match location {
+        "desktop" => dirs::desktop_dir().ok_or("Could not find desktop directory")?,
+        "start_menu" => {
+            let data_dir = dirs::data_dir().ok_or("Could not find data directory")?;
+            data_dir.join("applications")
+        }
+        _ => return Err(format!("Unknown location: {}", location)),
+    };
+    
+    std::fs::create_dir_all(&shortcut_dir).map_err(|e| e.to_string())?;
+    
+    let desktop_file = shortcut_dir.join(format!("oxide-launcher-{}.desktop", instance.id));
+    
+    let content = format!(
+        r#"[Desktop Entry]
+Type=Application
+Name={}
+Comment=Launch {} in OxideLauncher
+Exec="{}" --launch {}
+Icon=minecraft
+Terminal=false
+Categories=Game;
+"#,
+        instance.name,
+        instance.name,
+        exe_path.to_string_lossy(),
+        instance.id
+    );
+    
+    std::fs::write(&desktop_file, content).map_err(|e| e.to_string())?;
+    
+    // Make it executable
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&desktop_file)
+            .map_err(|e| e.to_string())?
+            .permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&desktop_file, perms).map_err(|e| e.to_string())?;
+    }
+    
+    Ok(())
+}
+
+// =============================================================================
+// Instance Settings Persistence
+// =============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InstanceSettingsUpdate {
+    pub name: Option<String>,
+    pub java_path: Option<String>,
+    pub java_args: Option<String>,
+    pub min_memory: Option<u32>,
+    pub max_memory: Option<u32>,
+    pub window_width: Option<u32>,
+    pub window_height: Option<u32>,
+    pub skip_java_compatibility_check: Option<bool>,
+    pub close_launcher_on_launch: Option<bool>,
+    pub quit_launcher_on_exit: Option<bool>,
+    pub prelaunch_command: Option<String>,
+    pub postexit_command: Option<String>,
+}
+
+/// Update instance settings
+#[tauri::command]
+pub async fn update_instance_settings(
+    state: State<'_, AppState>,
+    instance_id: String,
+    settings: InstanceSettingsUpdate,
+) -> Result<(), String> {
+    let mut instances = state.instances.lock().unwrap();
+    let instance = instances.iter_mut()
+        .find(|i| i.id == instance_id)
+        .ok_or_else(|| "Instance not found".to_string())?;
+    
+    // Update name if provided
+    if let Some(name) = settings.name {
+        if !name.is_empty() {
+            instance.name = name;
+        }
+    }
+    
+    // Update settings
+    if let Some(java_path) = settings.java_path {
+        instance.settings.java_path = if java_path.is_empty() { None } else { Some(PathBuf::from(java_path)) };
+    }
+    if let Some(java_args) = settings.java_args {
+        instance.settings.jvm_args = if java_args.is_empty() { None } else { Some(java_args) };
+    }
+    if let Some(min) = settings.min_memory {
+        instance.settings.min_memory = Some(min);
+    }
+    if let Some(max) = settings.max_memory {
+        instance.settings.max_memory = Some(max);
+    }
+    if let Some(width) = settings.window_width {
+        instance.settings.window_width = Some(width);
+    }
+    if let Some(height) = settings.window_height {
+        instance.settings.window_height = Some(height);
+    }
+    if let Some(skip) = settings.skip_java_compatibility_check {
+        instance.settings.skip_java_compatibility_check = skip;
+    }
+    if let Some(close) = settings.close_launcher_on_launch {
+        instance.settings.close_launcher_on_launch = close;
+    }
+    if let Some(quit) = settings.quit_launcher_on_exit {
+        instance.settings.quit_launcher_on_exit = quit;
+    }
+    if let Some(cmd) = settings.prelaunch_command {
+        instance.settings.pre_launch_command = if cmd.is_empty() { None } else { Some(cmd) };
+    }
+    if let Some(cmd) = settings.postexit_command {
+        instance.settings.post_exit_command = if cmd.is_empty() { None } else { Some(cmd) };
+    }
+    
+    // Save instance to disk
+    let instance_clone = instance.clone();
+    drop(instances);
+    
+    instance_clone.save().map_err(|e| e.to_string())?;
+    
+    Ok(())
+}
+
+// Helper function for formatting file sizes
+fn format_file_size(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+    
+    if bytes >= GB {
+        format!("{:.2} GB", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.2} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.2} KB", bytes as f64 / KB as f64)
+    } else {
+        format!("{} B", bytes)
+    }
 }

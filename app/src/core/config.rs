@@ -163,6 +163,14 @@ pub struct JavaConfig {
     /// Additional JVM arguments
     #[serde(default)]
     pub extra_args: Vec<String>,
+    
+    /// Skip Java version compatibility check globally
+    #[serde(default)]
+    pub skip_compatibility_check: bool,
+    
+    /// Automatically download Java when needed
+    #[serde(default = "default_true")]
+    pub auto_download: bool,
 }
 
 impl Default for JavaConfig {
@@ -172,6 +180,8 @@ impl Default for JavaConfig {
             use_bundled: true,
             auto_detect: true,
             extra_args: Vec::new(),
+            skip_compatibility_check: false,
+            auto_download: true,
         }
     }
 }

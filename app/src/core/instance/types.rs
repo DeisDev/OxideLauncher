@@ -305,6 +305,18 @@ pub struct InstanceSettings {
     /// Enable offline mode
     #[serde(default)]
     pub offline_mode: bool,
+    
+    /// Skip Java version compatibility check
+    #[serde(default)]
+    pub skip_java_compatibility_check: bool,
+    
+    /// Close launcher when game starts
+    #[serde(default)]
+    pub close_launcher_on_launch: bool,
+    
+    /// Quit launcher when game exits
+    #[serde(default)]
+    pub quit_launcher_on_exit: bool,
 }
 
 impl Default for InstanceSettings {
@@ -325,6 +337,9 @@ impl Default for InstanceSettings {
             show_console: false,
             auto_close_console: true,
             offline_mode: false,
+            skip_java_compatibility_check: false,
+            close_launcher_on_launch: false,
+            quit_launcher_on_exit: false,
         }
     }
 }

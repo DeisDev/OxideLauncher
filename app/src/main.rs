@@ -61,6 +61,33 @@ fn main() {
             commands::open_mods_folder,
             commands::open_configs_folder,
             commands::add_local_mod,
+            // Java management commands
+            commands::detect_java,
+            commands::find_java_for_minecraft,
+            commands::get_required_java,
+            commands::validate_java,
+            commands::fetch_available_java_versions,
+            commands::download_java,
+            commands::get_java_install_dir,
+            commands::delete_java,
+            // World management commands
+            commands::list_worlds,
+            commands::delete_world,
+            commands::export_world,
+            commands::copy_world,
+            commands::get_world_icon,
+            // Resource pack commands
+            commands::list_resource_packs,
+            commands::delete_resource_pack,
+            // Shader pack commands
+            commands::list_shader_packs,
+            commands::delete_shader_pack,
+            // Screenshot commands
+            commands::list_screenshots,
+            commands::delete_screenshot,
+            commands::open_screenshots_folder,
+            // Instance settings
+            commands::update_instance_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

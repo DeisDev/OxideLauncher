@@ -1,0 +1,153 @@
+//! Pre-launch command step - runs a custom command before launching
+
+use async_trait::async_trait;
+use std::process::{Command, Stdio};
+use tracing::{debug, info, warn};
+
+use crate::core::launch::{LaunchContext, LaunchStep, LaunchStepResult};
+
+/// Step that runs a pre-launch command
+pub struct PreLaunchCommandStep {
+    status: Option<String>,
+    progress: f32,
+    aborted: bool,
+}
+
+impl PreLaunchCommandStep {
+    pub fn new() -> Self {
+        Self {
+            status: None,
+            progress: 0.0,
+            aborted: false,
+        }
+    }
+    
+    /// Substitute variables in command string
+    fn substitute_variables(&self, command: &str, context: &LaunchContext) -> String {
+        let instance = &context.instance;
+        let game_dir = instance.game_dir();
+        
+        command
+            .replace("$INST_NAME", &instance.name)
+            .replace("$INST_ID", &instance.id)
+            .replace("$INST_DIR", &instance.path.to_string_lossy())
+            .replace("$INST_MC_DIR", &game_dir.to_string_lossy())
+            .replace("$INST_JAVA", &context.java_path
+                .as_ref()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_default())
+            .replace("$INST_JAVA_ARGS", &instance.settings.jvm_args
+                .as_ref()
+                .cloned()
+                .unwrap_or_default())
+    }
+}
+
+#[async_trait]
+impl LaunchStep for PreLaunchCommandStep {
+    fn name(&self) -> &'static str {
+        "Pre-Launch Command"
+    }
+    
+    fn description(&self) -> &'static str {
+        "Runs a custom command before launching the game"
+    }
+    
+    async fn execute(&mut self, context: &mut LaunchContext) -> LaunchStepResult {
+        let command = match &context.instance.settings.pre_launch_command {
+            Some(cmd) if !cmd.trim().is_empty() => cmd.clone(),
+            _ => {
+                debug!("No pre-launch command configured");
+                return LaunchStepResult::Success;
+            }
+        };
+        
+        // Substitute variables
+        let cmd = self.substitute_variables(&command, context);
+        
+        self.status = Some(format!("Running: {}", cmd));
+        self.progress = 0.0;
+        
+        info!("Running pre-launch command: {}", cmd);
+        
+        // Parse command
+        let (program, args) = if cfg!(target_os = "windows") {
+            ("cmd".to_string(), vec!["/C".to_string(), cmd.clone()])
+        } else {
+            ("sh".to_string(), vec!["-c".to_string(), cmd.clone()])
+        };
+        
+        // Run command
+        let game_dir = context.instance.game_dir();
+        
+        let result = Command::new(&program)
+            .args(&args)
+            .current_dir(&game_dir)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output();
+        
+        self.progress = 0.8;
+        
+        match result {
+            Ok(output) => {
+                if !output.stdout.is_empty() {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    debug!("Pre-launch stdout: {}", stdout);
+                }
+                if !output.stderr.is_empty() {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    debug!("Pre-launch stderr: {}", stderr);
+                }
+                
+                if output.status.success() {
+                    info!("Pre-launch command completed successfully");
+                    self.status = Some("Pre-launch command completed".to_string());
+                    self.progress = 1.0;
+                    LaunchStepResult::Success
+                } else {
+                    let code = output.status.code().unwrap_or(-1);
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    
+                    warn!("Pre-launch command failed with exit code {}", code);
+                    
+                    LaunchStepResult::Failed(format!(
+                        "Pre-launch command failed with exit code {}.\n\
+                         Command: {}\n\
+                         Error: {}",
+                        code, cmd, stderr.trim()
+                    ))
+                }
+            }
+            Err(e) => {
+                LaunchStepResult::Failed(format!(
+                    "Failed to run pre-launch command: {}\nCommand: {}",
+                    e, cmd
+                ))
+            }
+        }
+    }
+    
+    fn can_abort(&self) -> bool {
+        true
+    }
+    
+    async fn abort(&mut self) -> bool {
+        self.aborted = true;
+        true
+    }
+    
+    fn progress(&self) -> f32 {
+        self.progress
+    }
+    
+    fn status(&self) -> Option<String> {
+        self.status.clone()
+    }
+}
+
+impl Default for PreLaunchCommandStep {
+    fn default() -> Self {
+        Self::new()
+    }
+}

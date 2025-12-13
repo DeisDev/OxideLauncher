@@ -89,6 +89,54 @@ interface InstalledMod {
   icon_url: string | null;
 }
 
+interface JavaInstallation {
+  path: string;
+  version: string;
+  vendor: string;
+  arch: string;
+  is_64bit: boolean;
+  recommended: boolean;
+  is_managed: boolean;
+}
+
+interface AvailableJavaVersion {
+  major_version: number;
+  version: string;
+  lts: boolean;
+}
+
+interface WorldInfo {
+  folder_name: string;
+  name: string;
+  seed: number | null;
+  game_type: string;
+  hardcore: boolean;
+  last_played: string | null;
+  size: string;
+  has_icon: boolean;
+}
+
+interface ResourcePackInfo {
+  filename: string;
+  name: string;
+  description: string | null;
+  size: string;
+  enabled: boolean;
+}
+
+interface ShaderPackInfo {
+  filename: string;
+  name: string;
+  size: string;
+}
+
+interface ScreenshotInfo {
+  filename: string;
+  path: string;
+  timestamp: string | null;
+  size: string;
+}
+
 const TABS: { id: TabType; label: string }[] = [
   { id: "log", label: "Minecraft Log" },
   { id: "version", label: "Version" },
@@ -132,6 +180,29 @@ export function InstanceDetailsView() {
   // Notes state
   const [notes, setNotes] = useState("");
 
+  // Worlds state
+  const [worlds, setWorlds] = useState<WorldInfo[]>([]);
+  const [loadingWorlds, setLoadingWorlds] = useState(false);
+  const [deleteWorldDialog, setDeleteWorldDialog] = useState<string | null>(null);
+  const [worldToExport, setWorldToExport] = useState<string | null>(null);
+  const [copyingWorld, setCopyingWorld] = useState<string | null>(null);
+
+  // Resource Packs state
+  const [resourcePacks, setResourcePacks] = useState<ResourcePackInfo[]>([]);
+  const [loadingResourcePacks, setLoadingResourcePacks] = useState(false);
+  const [deleteResourcePackDialog, setDeleteResourcePackDialog] = useState<string | null>(null);
+
+  // Shader Packs state
+  const [shaderPacks, setShaderPacks] = useState<ShaderPackInfo[]>([]);
+  const [loadingShaderPacks, setLoadingShaderPacks] = useState(false);
+  const [deleteShaderPackDialog, setDeleteShaderPackDialog] = useState<string | null>(null);
+
+  // Screenshots state
+  const [screenshots, setScreenshots] = useState<ScreenshotInfo[]>([]);
+  const [loadingScreenshots, setLoadingScreenshots] = useState(false);
+  const [selectedScreenshot, setSelectedScreenshot] = useState<string | null>(null);
+  const [deleteScreenshotDialog, setDeleteScreenshotDialog] = useState<string | null>(null);
+
   // Settings state
   const [settingsName, setSettingsName] = useState("");
   const [javaPath, setJavaPath] = useState("");
@@ -140,6 +211,23 @@ export function InstanceDetailsView() {
   const [maxMemory, setMaxMemory] = useState("4096");
   const [windowWidth, setWindowWidth] = useState("854");
   const [windowHeight, setWindowHeight] = useState("480");
+  
+  // Launch behavior settings
+  const [skipJavaCompatibilityCheck, setSkipJavaCompatibilityCheck] = useState(false);
+  const [closeLauncherOnLaunch, setCloseLauncherOnLaunch] = useState(false);
+  const [quitLauncherOnExit, setQuitLauncherOnExit] = useState(false);
+  const [prelaunchCommand, setPrelaunchCommand] = useState("");
+  const [postexitCommand, setPostexitCommand] = useState("");
+
+  // Java management state
+  const [javaInstallations, setJavaInstallations] = useState<JavaInstallation[]>([]);
+  const [detectingJava, setDetectingJava] = useState(false);
+  const [availableVersions, setAvailableVersions] = useState<AvailableJavaVersion[]>([]);
+  const [downloadingJava, setDownloadingJava] = useState<number | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState("");
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [javaToDelete, setJavaToDelete] = useState<JavaInstallation | null>(null);
+  const [requiredJavaVersion, setRequiredJavaVersion] = useState<number | null>(null);
 
   useEffect(() => {
     loadInstance();
@@ -161,6 +249,38 @@ export function InstanceDetailsView() {
   }, [id]);
 
   useEffect(() => {
+    if (activeTab === "settings") {
+      detectJavaInstallations();
+      fetchAvailableJavaVersions();
+      getRequiredJavaVersion();
+    }
+  }, [activeTab, instance?.minecraft_version]);
+
+  useEffect(() => {
+    if (activeTab === "worlds") {
+      loadWorlds();
+    }
+  }, [activeTab, id]);
+
+  useEffect(() => {
+    if (activeTab === "resourcepacks") {
+      loadResourcePacks();
+    }
+  }, [activeTab, id]);
+
+  useEffect(() => {
+    if (activeTab === "shaderpacks") {
+      loadShaderPacks();
+    }
+  }, [activeTab, id]);
+
+  useEffect(() => {
+    if (activeTab === "screenshots") {
+      loadScreenshots();
+    }
+  }, [activeTab, id]);
+
+  useEffect(() => {
     if (autoScroll && logEndRef.current) {
       logEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
@@ -177,6 +297,133 @@ export function InstanceDetailsView() {
       console.error("Failed to load instance:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadWorlds = async () => {
+    if (!id) return;
+    setLoadingWorlds(true);
+    try {
+      const worldList = await invoke<WorldInfo[]>("list_worlds", { instanceId: id });
+      setWorlds(worldList);
+    } catch (error) {
+      console.error("Failed to load worlds:", error);
+    } finally {
+      setLoadingWorlds(false);
+    }
+  };
+
+  const deleteWorld = async (folderName: string) => {
+    if (!id) return;
+    try {
+      await invoke("delete_world", { instanceId: id, folderName });
+      await loadWorlds();
+    } catch (error) {
+      console.error("Failed to delete world:", error);
+      alert("Failed to delete world: " + error);
+    }
+    setDeleteWorldDialog(null);
+  };
+
+  const copyWorld = async (folderName: string) => {
+    if (!id) return;
+    const newName = prompt("Enter name for the copied world:", `${folderName}_copy`);
+    if (!newName) return;
+    
+    setCopyingWorld(folderName);
+    try {
+      await invoke("copy_world", { instanceId: id, folderName, newName });
+      await loadWorlds();
+    } catch (error) {
+      console.error("Failed to copy world:", error);
+      alert("Failed to copy world: " + error);
+    } finally {
+      setCopyingWorld(null);
+    }
+  };
+
+  const loadResourcePacks = async () => {
+    if (!id) return;
+    setLoadingResourcePacks(true);
+    try {
+      const packs = await invoke<ResourcePackInfo[]>("list_resource_packs", { instanceId: id });
+      setResourcePacks(packs);
+    } catch (error) {
+      console.error("Failed to load resource packs:", error);
+    } finally {
+      setLoadingResourcePacks(false);
+    }
+  };
+
+  const deleteResourcePack = async (filename: string) => {
+    if (!id) return;
+    try {
+      await invoke("delete_resource_pack", { instanceId: id, filename });
+      await loadResourcePacks();
+    } catch (error) {
+      console.error("Failed to delete resource pack:", error);
+      alert("Failed to delete resource pack: " + error);
+    }
+    setDeleteResourcePackDialog(null);
+  };
+
+  const loadShaderPacks = async () => {
+    if (!id) return;
+    setLoadingShaderPacks(true);
+    try {
+      const packs = await invoke<ShaderPackInfo[]>("list_shader_packs", { instanceId: id });
+      setShaderPacks(packs);
+    } catch (error) {
+      console.error("Failed to load shader packs:", error);
+    } finally {
+      setLoadingShaderPacks(false);
+    }
+  };
+
+  const deleteShaderPack = async (filename: string) => {
+    if (!id) return;
+    try {
+      await invoke("delete_shader_pack", { instanceId: id, filename });
+      await loadShaderPacks();
+    } catch (error) {
+      console.error("Failed to delete shader pack:", error);
+      alert("Failed to delete shader pack: " + error);
+    }
+    setDeleteShaderPackDialog(null);
+  };
+
+  const loadScreenshots = async () => {
+    if (!id) return;
+    setLoadingScreenshots(true);
+    try {
+      const shots = await invoke<ScreenshotInfo[]>("list_screenshots", { instanceId: id });
+      setScreenshots(shots);
+    } catch (error) {
+      console.error("Failed to load screenshots:", error);
+    } finally {
+      setLoadingScreenshots(false);
+    }
+  };
+
+  const deleteScreenshot = async (filename: string) => {
+    if (!id) return;
+    try {
+      await invoke("delete_screenshot", { instanceId: id, filename });
+      await loadScreenshots();
+    } catch (error) {
+      console.error("Failed to delete screenshot:", error);
+      alert("Failed to delete screenshot: " + error);
+    }
+    setDeleteScreenshotDialog(null);
+  };
+
+  const openScreenshotsFolder = async () => {
+    if (!id) return;
+    try {
+      await invoke("open_screenshots_folder", { instanceId: id });
+    } catch (error) {
+      console.error("Failed to open screenshots folder:", error);
+      alert("Failed to open folder: " + error);
     }
   };
 
@@ -287,6 +534,77 @@ export function InstanceDetailsView() {
       console.error("Failed to delete mods:", error);
       alert("Failed to delete mods: " + error);
     }
+  };
+
+  const detectJavaInstallations = async () => {
+    setDetectingJava(true);
+    try {
+      const installations = await invoke<JavaInstallation[]>("detect_java");
+      setJavaInstallations(installations);
+    } catch (error) {
+      console.error("Failed to detect Java:", error);
+      alert("Failed to detect Java installations: " + error);
+    } finally {
+      setDetectingJava(false);
+    }
+  };
+
+  const fetchAvailableJavaVersions = async () => {
+    try {
+      const versions = await invoke<AvailableJavaVersion[]>("fetch_available_java_versions");
+      setAvailableVersions(versions);
+    } catch (error) {
+      console.error("Failed to fetch available Java versions:", error);
+    }
+  };
+
+  const getRequiredJavaVersion = async () => {
+    if (!instance?.minecraft_version) return;
+    try {
+      const required = await invoke<number>("get_required_java", {
+        minecraftVersion: instance.minecraft_version,
+      });
+      setRequiredJavaVersion(required);
+    } catch (error) {
+      console.error("Failed to get required Java version:", error);
+    }
+  };
+
+  const downloadJava = async (majorVersion: number) => {
+    setDownloadingJava(majorVersion);
+    setDownloadProgress("Starting download...");
+    try {
+      await invoke<JavaInstallation>("download_java", { majorVersion });
+      setDownloadProgress("");
+      await detectJavaInstallations();
+    } catch (error) {
+      console.error("Failed to download Java:", error);
+      alert("Failed to download Java: " + error);
+      setDownloadProgress("");
+    } finally {
+      setDownloadingJava(null);
+    }
+  };
+
+  const deleteJava = async () => {
+    if (!javaToDelete) return;
+    try {
+      await invoke("delete_java", { path: javaToDelete.path });
+      await detectJavaInstallations();
+      setShowDeleteDialog(false);
+      setJavaToDelete(null);
+    } catch (error) {
+      console.error("Failed to delete Java:", error);
+      alert("Failed to delete Java: " + error);
+    }
+  };
+
+  const selectJava = (installation: JavaInstallation) => {
+    setJavaPath(installation.path);
+  };
+
+  const unselectJava = () => {
+    setJavaPath("");
   };
 
   const enableSelectedMods = async () => {
@@ -853,24 +1171,130 @@ export function InstanceDetailsView() {
 
           {/* Resource Packs Tab */}
           {activeTab === "resourcepacks" && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Resource Packs</CardTitle>
+            <Card className="h-full">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>Resource Packs</CardTitle>
+                    <CardDescription>Manage resource packs for this instance</CardDescription>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={loadResourcePacks} disabled={loadingResourcePacks}>
+                    <RefreshCw className={cn("h-4 w-4 mr-2", loadingResourcePacks && "animate-spin")} />
+                    Refresh
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
-                <p className="text-muted-foreground">Resource pack management coming soon...</p>
+                {loadingResourcePacks ? (
+                  <div className="flex items-center justify-center py-8">
+                    <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+                    <span className="ml-2 text-muted-foreground">Loading resource packs...</span>
+                  </div>
+                ) : resourcePacks.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    No resource packs found. Add resource packs to the resourcepacks folder.
+                  </div>
+                ) : (
+                  <ScrollArea className="h-[400px]">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Size</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {resourcePacks.map((pack) => (
+                          <TableRow key={pack.filename}>
+                            <TableCell className="font-medium">
+                              <div className="flex items-center gap-2">
+                                <Package className="h-4 w-4 text-muted-foreground" />
+                                <span>{pack.name}</span>
+                              </div>
+                            </TableCell>
+                            <TableCell>{pack.size}</TableCell>
+                            <TableCell className="text-right">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setDeleteResourcePackDialog(pack.filename)}
+                                title="Delete resource pack"
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </ScrollArea>
+                )}
               </CardContent>
             </Card>
           )}
 
           {/* Shader Packs Tab */}
           {activeTab === "shaderpacks" && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Shader Packs</CardTitle>
+            <Card className="h-full">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>Shader Packs</CardTitle>
+                    <CardDescription>Manage shader packs for this instance</CardDescription>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={loadShaderPacks} disabled={loadingShaderPacks}>
+                    <RefreshCw className={cn("h-4 w-4 mr-2", loadingShaderPacks && "animate-spin")} />
+                    Refresh
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
-                <p className="text-muted-foreground">Shader pack management coming soon...</p>
+                {loadingShaderPacks ? (
+                  <div className="flex items-center justify-center py-8">
+                    <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+                    <span className="ml-2 text-muted-foreground">Loading shader packs...</span>
+                  </div>
+                ) : shaderPacks.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    No shader packs found. Install a shader mod (like Iris or OptiFine) and add shader packs to the shaderpacks folder.
+                  </div>
+                ) : (
+                  <ScrollArea className="h-[400px]">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Size</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {shaderPacks.map((pack) => (
+                          <TableRow key={pack.filename}>
+                            <TableCell className="font-medium">
+                              <div className="flex items-center gap-2">
+                                <Package className="h-4 w-4 text-muted-foreground" />
+                                <span>{pack.name}</span>
+                              </div>
+                            </TableCell>
+                            <TableCell>{pack.size}</TableCell>
+                            <TableCell className="text-right">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setDeleteShaderPackDialog(pack.filename)}
+                                title="Delete shader pack"
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </ScrollArea>
+                )}
               </CardContent>
             </Card>
           )}
@@ -895,24 +1319,159 @@ export function InstanceDetailsView() {
 
           {/* Worlds Tab */}
           {activeTab === "worlds" && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Worlds</CardTitle>
+            <Card className="h-full">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>Worlds</CardTitle>
+                    <CardDescription>Manage your saved worlds</CardDescription>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={loadWorlds} disabled={loadingWorlds}>
+                    <RefreshCw className={cn("h-4 w-4 mr-2", loadingWorlds && "animate-spin")} />
+                    Refresh
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
-                <p className="text-muted-foreground">World management coming soon...</p>
+                {loadingWorlds ? (
+                  <div className="flex items-center justify-center py-8">
+                    <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+                    <span className="ml-2 text-muted-foreground">Loading worlds...</span>
+                  </div>
+                ) : worlds.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    No worlds found. Create a world in-game to see it here.
+                  </div>
+                ) : (
+                  <ScrollArea className="h-[400px]">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Game Mode</TableHead>
+                          <TableHead>Last Played</TableHead>
+                          <TableHead>Size</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {worlds.map((world) => (
+                          <TableRow key={world.folder_name}>
+                            <TableCell className="font-medium">
+                              <div className="flex items-center gap-2">
+                                <span>{world.name}</span>
+                                {world.hardcore && (
+                                  <Badge variant="destructive" className="text-xs">Hardcore</Badge>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell>{world.game_type}</TableCell>
+                            <TableCell>{world.last_played || "Unknown"}</TableCell>
+                            <TableCell>{world.size}</TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => copyWorld(world.folder_name)}
+                                  disabled={copyingWorld === world.folder_name}
+                                  title="Copy world"
+                                >
+                                  {copyingWorld === world.folder_name ? (
+                                    <RefreshCw className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Copy className="h-4 w-4" />
+                                  )}
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => setDeleteWorldDialog(world.folder_name)}
+                                  title="Delete world"
+                                >
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </ScrollArea>
+                )}
               </CardContent>
             </Card>
           )}
 
           {/* Screenshots Tab */}
           {activeTab === "screenshots" && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Screenshots</CardTitle>
+            <Card className="h-full">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>Screenshots</CardTitle>
+                    <CardDescription>View and manage your screenshots</CardDescription>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={openScreenshotsFolder}>
+                      <FolderOpen className="h-4 w-4 mr-2" />
+                      Open Folder
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={loadScreenshots} disabled={loadingScreenshots}>
+                      <RefreshCw className={cn("h-4 w-4 mr-2", loadingScreenshots && "animate-spin")} />
+                      Refresh
+                    </Button>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
-                <p className="text-muted-foreground">Screenshot viewer coming soon...</p>
+                {loadingScreenshots ? (
+                  <div className="flex items-center justify-center py-8">
+                    <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+                    <span className="ml-2 text-muted-foreground">Loading screenshots...</span>
+                  </div>
+                ) : screenshots.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    No screenshots found. Take screenshots in-game with F2.
+                  </div>
+                ) : (
+                  <ScrollArea className="h-[400px]">
+                    <div className="grid grid-cols-3 gap-4">
+                      {screenshots.map((screenshot) => (
+                        <div
+                          key={screenshot.filename}
+                          className="group relative aspect-video bg-muted rounded-lg overflow-hidden cursor-pointer border border-border hover:border-primary transition-colors"
+                          onClick={() => setSelectedScreenshot(screenshot.path)}
+                        >
+                          <img
+                            src={`file://${screenshot.path}`}
+                            alt={screenshot.filename}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none';
+                            }}
+                          />
+                          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-white hover:text-destructive"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDeleteScreenshotDialog(screenshot.filename);
+                              }}
+                            >
+                              <Trash2 className="h-5 w-5" />
+                            </Button>
+                          </div>
+                          <div className="absolute bottom-0 left-0 right-0 bg-black/70 px-2 py-1 text-xs text-white truncate">
+                            {screenshot.timestamp || screenshot.filename}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                )}
               </CardContent>
             </Card>
           )}
@@ -921,11 +1480,12 @@ export function InstanceDetailsView() {
           {activeTab === "settings" && (
             <ScrollArea className="h-full">
               <Tabs defaultValue="general" className="w-full">
-                <TabsList className="grid w-full grid-cols-4 mb-4">
+                <TabsList className="grid w-full grid-cols-5 mb-4">
                   <TabsTrigger value="general">General</TabsTrigger>
                   <TabsTrigger value="java">Java</TabsTrigger>
                   <TabsTrigger value="memory">Memory</TabsTrigger>
-                  <TabsTrigger value="game">Game Window</TabsTrigger>
+                  <TabsTrigger value="game">Window</TabsTrigger>
+                  <TabsTrigger value="launch">Launch</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="general">
@@ -964,21 +1524,181 @@ export function InstanceDetailsView() {
                   <Card>
                     <CardHeader>
                       <CardTitle>Java Settings</CardTitle>
-                      <CardDescription>Configure Java runtime settings for this instance.</CardDescription>
+                      <CardDescription>
+                        Configure Java runtime settings for this instance.
+                        {requiredJavaVersion && (
+                          <span className="block mt-1 text-sm font-medium text-primary">
+                            Minecraft {instance?.minecraft_version} requires Java {requiredJavaVersion}
+                          </span>
+                        )}
+                      </CardDescription>
                     </CardHeader>
-                    <CardContent className="space-y-4">
+                    <CardContent className="space-y-6">
+                      {/* Detected Java Installations */}
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <Label>Detected Java Installations</Label>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={detectJavaInstallations}
+                            disabled={detectingJava}
+                          >
+                            <RefreshCw className={cn("w-4 h-4 mr-2", detectingJava && "animate-spin")} />
+                            Detect Java
+                          </Button>
+                        </div>
+                        
+                        {javaInstallations.length > 0 ? (
+                          <ScrollArea className="h-[300px] border rounded-md p-4">
+                            <div className="space-y-2">
+                              {javaInstallations.map((installation, index) => (
+                                <div
+                                  key={index}
+                                  className={cn(
+                                    "p-3 border rounded-lg transition-colors",
+                                    javaPath === installation.path
+                                      ? "border-primary bg-primary/5"
+                                      : "hover:bg-muted/50"
+                                  )}
+                                >
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2 mb-1">
+                                        <span className="font-medium">Java {installation.version}</span>
+                                        <span className="text-sm text-muted-foreground">({installation.vendor})</span>
+                                        {installation.is_managed && (
+                                          <Badge variant="secondary">Managed</Badge>
+                                        )}
+                                        {installation.recommended && (
+                                          <Badge variant="default">Recommended</Badge>
+                                        )}
+                                        {installation.is_64bit && (
+                                          <Badge variant="outline">64-bit</Badge>
+                                        )}
+                                      </div>
+                                      <p className="text-sm text-muted-foreground truncate">
+                                        {installation.path}
+                                      </p>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      {javaPath === installation.path ? (
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={unselectJava}
+                                        >
+                                          <X className="w-4 h-4" />
+                                        </Button>
+                                      ) : (
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => selectJava(installation)}
+                                        >
+                                          <Check className="w-4 h-4" />
+                                        </Button>
+                                      )}
+                                      {installation.is_managed && (
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => {
+                                            setJavaToDelete(installation);
+                                            setShowDeleteDialog(true);
+                                          }}
+                                        >
+                                          <Trash2 className="w-4 h-4" />
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </ScrollArea>
+                        ) : (
+                          <div className="text-sm text-muted-foreground border rounded-md p-4 text-center">
+                            No Java installations detected. Click "Detect Java" to scan your system.
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Download Java */}
+                      {availableVersions.length > 0 && (
+                        <div className="space-y-3">
+                          <Label>Download Java</Label>
+                          <p className="text-sm text-muted-foreground">
+                            Download official Eclipse Temurin JDK builds.
+                          </p>
+                          <ScrollArea className="h-[200px] border rounded-md">
+                            <div className="p-3 space-y-2">
+                              {availableVersions.map((version) => (
+                                <div
+                                  key={version.major_version}
+                                  className={cn(
+                                    "flex items-center justify-between p-2 border rounded-lg",
+                                    requiredJavaVersion === version.major_version
+                                      ? "border-primary bg-primary/5"
+                                      : "hover:bg-muted/50"
+                                  )}
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-medium text-sm">Java {version.major_version}</span>
+                                    {version.lts && (
+                                      <Badge variant="secondary" className="text-xs">
+                                        LTS
+                                      </Badge>
+                                    )}
+                                    {requiredJavaVersion === version.major_version && (
+                                      <Badge variant="default" className="text-xs">
+                                        Required
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <Button
+                                    variant={requiredJavaVersion === version.major_version ? "default" : "outline"}
+                                    size="sm"
+                                    onClick={() => downloadJava(version.major_version)}
+                                    disabled={downloadingJava !== null}
+                                  >
+                                    {downloadingJava === version.major_version ? (
+                                      <>
+                                        <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                                        Downloading...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Download className="w-4 h-4 mr-2" />
+                                        Download
+                                      </>
+                                    )}
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                          </ScrollArea>
+                          {downloadProgress && (
+                            <p className="text-sm text-muted-foreground">{downloadProgress}</p>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Custom Java Path */}
                       <div className="space-y-2">
                         <Label htmlFor="javaPath">Custom Java Path (optional)</Label>
                         <Input
                           id="javaPath"
                           value={javaPath}
                           onChange={(e) => setJavaPath(e.target.value)}
-                          placeholder="Leave empty to use default"
+                          placeholder="Leave empty to use global configuration"
                         />
                         <p className="text-sm text-muted-foreground">
-                          Leave empty to use the global Java configuration.
+                          Leave empty to use the global Java configuration. Use the buttons above to select a detected installation.
                         </p>
                       </div>
+
+                      {/* Extra Java Arguments */}
                       <div className="space-y-2">
                         <Label htmlFor="javaArgs">Extra Java Arguments</Label>
                         <Input
@@ -1062,6 +1782,90 @@ export function InstanceDetailsView() {
                     </CardContent>
                   </Card>
                 </TabsContent>
+
+                <TabsContent value="launch">
+                  <div className="space-y-4">
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Launch Behavior</CardTitle>
+                        <CardDescription>Configure how the launcher behaves when launching this instance.</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <div className="space-y-0.5">
+                            <Label htmlFor="skipJavaCheck">Skip Java Compatibility Check</Label>
+                            <p className="text-sm text-muted-foreground">
+                              Skip verification that the Java version is compatible with this Minecraft version.
+                            </p>
+                          </div>
+                          <Switch
+                            id="skipJavaCheck"
+                            checked={skipJavaCompatibilityCheck}
+                            onCheckedChange={setSkipJavaCompatibilityCheck}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <div className="space-y-0.5">
+                            <Label htmlFor="closeLauncher">Close Launcher on Launch</Label>
+                            <p className="text-sm text-muted-foreground">
+                              Hide the launcher window when the game starts.
+                            </p>
+                          </div>
+                          <Switch
+                            id="closeLauncher"
+                            checked={closeLauncherOnLaunch}
+                            onCheckedChange={setCloseLauncherOnLaunch}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <div className="space-y-0.5">
+                            <Label htmlFor="quitLauncher">Quit Launcher on Game Exit</Label>
+                            <p className="text-sm text-muted-foreground">
+                              Close the launcher completely when the game closes.
+                            </p>
+                          </div>
+                          <Switch
+                            id="quitLauncher"
+                            checked={quitLauncherOnExit}
+                            onCheckedChange={setQuitLauncherOnExit}
+                          />
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Custom Commands</CardTitle>
+                        <CardDescription>
+                          Run custom commands before launch or after the game exits.
+                          <span className="block mt-1 text-xs text-muted-foreground">
+                            Variables: $INST_NAME, $INST_ID, $INST_DIR, $INST_MC_DIR, $INST_JAVA, $INST_JAVA_ARGS
+                          </span>
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="prelaunchCommand">Pre-Launch Command</Label>
+                          <Input
+                            id="prelaunchCommand"
+                            value={prelaunchCommand}
+                            onChange={(e) => setPrelaunchCommand(e.target.value)}
+                            placeholder="Command to run before launching the game"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="postexitCommand">Post-Exit Command</Label>
+                          <Input
+                            id="postexitCommand"
+                            value={postexitCommand}
+                            onChange={(e) => setPostexitCommand(e.target.value)}
+                            placeholder="Command to run after the game closes"
+                          />
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </TabsContent>
               </Tabs>
 
               <div className="flex justify-end pt-4">
@@ -1087,6 +1891,115 @@ export function InstanceDetailsView() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => deleteModDialog && deleteMod(deleteModDialog)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Java Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Java Installation</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this Java installation?
+              {javaToDelete && (
+                <div className="mt-2 p-2 bg-muted rounded-md">
+                  <p className="font-medium">Java {javaToDelete.version}</p>
+                  <p className="text-sm">{javaToDelete.vendor}</p>
+                  <p className="text-sm text-muted-foreground truncate">{javaToDelete.path}</p>
+                </div>
+              )}
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setJavaToDelete(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={deleteJava}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete World Dialog */}
+      <AlertDialog open={!!deleteWorldDialog} onOpenChange={() => setDeleteWorldDialog(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete World</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete the world "{worlds.find(w => w.folder_name === deleteWorldDialog)?.name || deleteWorldDialog}"? 
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteWorldDialog && deleteWorld(deleteWorldDialog)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Resource Pack Dialog */}
+      <AlertDialog open={!!deleteResourcePackDialog} onOpenChange={() => setDeleteResourcePackDialog(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Resource Pack</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete "{deleteResourcePackDialog}"? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteResourcePackDialog && deleteResourcePack(deleteResourcePackDialog)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Shader Pack Dialog */}
+      <AlertDialog open={!!deleteShaderPackDialog} onOpenChange={() => setDeleteShaderPackDialog(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Shader Pack</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete "{deleteShaderPackDialog}"? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteShaderPackDialog && deleteShaderPack(deleteShaderPackDialog)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Screenshot Dialog */}
+      <AlertDialog open={!!deleteScreenshotDialog} onOpenChange={() => setDeleteScreenshotDialog(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Screenshot</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete "{deleteScreenshotDialog}"? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteScreenshotDialog && deleteScreenshot(deleteScreenshotDialog)}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Delete
