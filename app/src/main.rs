@@ -9,16 +9,71 @@
 mod commands;
 mod core;
 
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
+use std::sync::Arc;
+use parking_lot::RwLock;
+
+/// Global logging state to allow runtime reconfiguration
+static LOGGING_STATE: once_cell::sync::Lazy<Arc<RwLock<LoggingState>>> = 
+    once_cell::sync::Lazy::new(|| Arc::new(RwLock::new(LoggingState::default())));
+
+#[derive(Default)]
+struct LoggingState {
+    file_logging_enabled: bool,
+}
+
+fn initialize_logging() {
+    // Load config to check if file logging is enabled
+    let config = core::config::Config::load().unwrap_or_default();
+    
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| {
+            if config.logging.debug_to_file {
+                EnvFilter::new("debug")
+            } else {
+                EnvFilter::new("info")
+            }
+        });
+    
+    // Console logging layer (always enabled)
+    let console_layer = tracing_subscriber::fmt::layer()
+        .with_filter(env_filter.clone());
+    
+    // File logging layer (conditional)
+    if config.logging.debug_to_file {
+        let logs_dir = config.logs_dir();
+        std::fs::create_dir_all(&logs_dir).ok();
+        
+        let file_appender = tracing_appender::rolling::daily(logs_dir, "oxide-launcher.log");
+        let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+        
+        // Store guard so it doesn't drop (would stop logging)
+        std::mem::forget(_guard);
+        
+        let file_layer = tracing_subscriber::fmt::layer()
+            .with_writer(non_blocking)
+            .with_ansi(false)
+            .with_filter(EnvFilter::new("debug"));
+        
+        tracing_subscriber::registry()
+            .with(console_layer)
+            .with(file_layer)
+            .init();
+        
+        LOGGING_STATE.write().file_logging_enabled = true;
+        tracing::info!("Debug file logging enabled at: {:?}", config.logs_dir());
+    } else {
+        tracing_subscriber::registry()
+            .with(console_layer)
+            .init();
+    }
+}
 
 fn main() {
     // Initialize logging
-    tracing_subscriber::registry()
-        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    initialize_logging();
 
-    tracing::info!("Starting Oxide Launcher");
+    tracing::info!("Starting Oxide Launcher v{}", env!("CARGO_PKG_VERSION"));
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -42,11 +97,19 @@ fn main() {
             // Account commands
             commands::accounts::get_accounts,
             commands::accounts::add_offline_account,
+            commands::accounts::start_microsoft_login,
+            commands::accounts::poll_microsoft_login,
+            commands::accounts::cancel_microsoft_login,
+            commands::accounts::refresh_account,
             commands::accounts::set_active_account,
             commands::accounts::remove_account,
+            commands::accounts::get_account_for_launch,
+            commands::accounts::is_microsoft_configured,
             // Config commands
             commands::config::get_config,
             commands::config::update_config,
+            commands::config::get_logs_directory,
+            commands::config::open_logs_directory,
             // Version commands
             commands::versions::get_minecraft_versions,
             commands::versions::get_forge_versions,

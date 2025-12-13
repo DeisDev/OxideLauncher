@@ -37,6 +37,7 @@ tar = "0.4"
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
 
 # Error handling
 thiserror = "2"
@@ -58,6 +59,7 @@ open = "5"
 webbrowser = "1"
 semver = { version = "1", features = ["serde"] }
 regex = "1"
+lazy_static = "1"
 
 # Image processing
 image = "0.25"

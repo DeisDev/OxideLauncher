@@ -35,6 +35,10 @@ pub struct Config {
     #[serde(default)]
     pub memory: MemoryConfig,
 
+    /// Logging settings
+    #[serde(default)]
+    pub logging: LoggingConfig,
+
     /// API keys and secrets (should be handled securely)
     #[serde(default)]
     pub api_keys: ApiKeys,
@@ -50,6 +54,7 @@ impl Default for Config {
             network: NetworkConfig::default(),
             ui: UiConfig::default(),
             memory: MemoryConfig::default(),
+            logging: LoggingConfig::default(),
             api_keys: ApiKeys::default(),
         }
     }
@@ -138,6 +143,11 @@ impl Config {
     /// Get the themes directory
     pub fn themes_dir(&self) -> PathBuf {
         self.data_dir.join("themes")
+    }
+
+    /// Get the logs directory
+    pub fn logs_dir(&self) -> PathBuf {
+        self.data_dir.join("logs")
     }
 
     /// Set the theme name
@@ -320,6 +330,32 @@ pub struct ApiKeys {
     pub modrinth_api_token: Option<String>,
 }
 
+/// Logging configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoggingConfig {
+    /// Enable debug logging to file
+    #[serde(default)]
+    pub debug_to_file: bool,
+
+    /// Maximum log file size in MB before rotation
+    #[serde(default = "default_log_size")]
+    pub max_file_size_mb: u32,
+
+    /// Number of rotated log files to keep
+    #[serde(default = "default_log_files")]
+    pub max_files: u32,
+}
+
+impl Default for LoggingConfig {
+    fn default() -> Self {
+        Self {
+            debug_to_file: false,
+            max_file_size_mb: default_log_size(),
+            max_files: default_log_files(),
+        }
+    }
+}
+
 // Default value functions
 
 fn default_data_dir() -> PathBuf {
@@ -369,6 +405,14 @@ fn default_min_memory() -> u32 {
 
 fn default_max_memory() -> u32 {
     4096
+}
+
+fn default_log_size() -> u32 {
+    10
+}
+
+fn default_log_files() -> u32 {
+    5
 }
 
 fn default_permgen() -> u32 {

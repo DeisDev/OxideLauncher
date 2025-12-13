@@ -1,133 +1,70 @@
 //! Microsoft account authentication
-//! 
-//! Implements the Microsoft OAuth flow for Minecraft authentication.
-//! 
+//!
+//! Implements the Microsoft OAuth flow for Minecraft authentication,
+//! similar to Prism Launcher's authentication system.
+//!
 //! Flow:
-//! 1. User logs in with Microsoft account (OAuth)
-//! 2. Exchange MS token for Xbox Live token
-//! 3. Exchange XBL token for XSTS token
-//! 4. Exchange XSTS token for Minecraft token
-//! 5. Get Minecraft profile
-
-#![allow(dead_code)] // Microsoft auth will be used as features are completed
+//! 1. MSA Device Code Flow -> Get device code for user to enter
+//! 2. Poll for MSA token -> MS Access Token + Refresh Token
+//! 3. Xbox Live User Auth -> XBL Token + User Hash (UToken)
+//! 4. XSTS Authorization (Minecraft RP) -> XSTS Token for Minecraft services
+//! 5. Launcher Login -> Minecraft Access Token (Yggdrasil-style)
+//! 6. Entitlements Check -> Verify game ownership
+//! 7. Minecraft Profile -> UUID, username, skin, cape
 
 use chrono::{Duration, Utc};
 use serde::Deserialize;
+use tokio::sync::mpsc;
+
+/// Microsoft Azure App Registration Client ID
+///
+/// If you fork this project and use any of our custom IDs, API keys, or similar credentials,
+/// you agree to the Terms of Service (TOS) of the respective platform (e.g., Microsoft/Azure).
+/// Be mindful: abusing these APIs or credentials can lead to service disruption for many users.
+/// Always use your own credentials where possible and respect rate limits and fair use policies.
+/// Replace this with your actual Azure Client ID from the Azure Portal
+pub const MSA_CLIENT_ID: &str = "1f8c7ebd-3140-4b03-830a-dd0e5ec3218f";
+
 use crate::core::error::{OxideError, Result};
-use crate::core::config::Config;
-use super::Account;
+use super::{
+    Account, AccountData, AuthProgressEvent, CapeInfo, DeviceCodeInfo, MinecraftEntitlement,
+    MinecraftProfile, SkinInfo, SkinVariant, Token,
+};
+
+// =============================================================================
+// API Endpoints
+// =============================================================================
 
 /// Microsoft OAuth endpoints
-const MS_AUTH_URL: &str = "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize";
-const MS_TOKEN_URL: &str = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
 const MS_DEVICE_CODE_URL: &str = "https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode";
+const MS_TOKEN_URL: &str = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
 
 /// Xbox Live endpoints
 const XBL_AUTH_URL: &str = "https://user.auth.xboxlive.com/user/authenticate";
 const XSTS_AUTH_URL: &str = "https://xsts.auth.xboxlive.com/xsts/authorize";
 
-/// Minecraft endpoints  
-const MC_AUTH_URL: &str = "https://api.minecraftservices.com/authentication/login_with_xbox";
+/// Minecraft services endpoints
+/// /authentication/login_with_xbox is the public endpoint for third-party launchers
+/// /launcher/login requires special Microsoft/Mojang approval
+const MC_LOGIN_URL: &str = "https://api.minecraftservices.com/authentication/login_with_xbox";
 const MC_PROFILE_URL: &str = "https://api.minecraftservices.com/minecraft/profile";
-const MC_ENTITLEMENTS_URL: &str = "https://api.minecraftservices.com/entitlements/mcstore";
+const MC_ENTITLEMENTS_URL: &str = "https://api.minecraftservices.com/entitlements/license";
+
+/// Xbox profile endpoint (for gamertag, etc.)
+#[allow(dead_code)]
+const XBOX_PROFILE_URL: &str = "https://profile.xboxlive.com/users/me/profile/settings";
 
 /// OAuth scopes needed
-const OAUTH_SCOPE: &str = "XboxLive.signin offline_access";
+const OAUTH_SCOPE: &str = "XboxLive.signin XboxLive.offline_access";
 
-/// Login with Microsoft account using device code flow
-pub async fn login_microsoft() -> Result<Account> {
-    let config = Config::load().unwrap_or_default();
-    
-    let client_id = config.api_keys.msa_client_id
-        .ok_or_else(|| OxideError::Auth("Microsoft Client ID not configured".into()))?;
+/// Relying parties for XSTS authorization
+const MINECRAFT_RELYING_PARTY: &str = "rp://api.minecraftservices.com/";
+#[allow(dead_code)]
+const XBOX_RELYING_PARTY: &str = "http://xboxlive.com";
 
-    let client = reqwest::Client::new();
-
-    // Step 1: Get device code
-    tracing::info!("Starting Microsoft device code authentication flow");
-    let device_code = get_device_code(&client, &client_id).await?;
-    
-    tracing::info!("Please open {} and enter code: {}", 
-        device_code.verification_uri, 
-        device_code.user_code
-    );
-
-    // Open browser for user
-    let _ = webbrowser::open(&device_code.verification_uri);
-
-    // Step 2: Poll for token
-    let ms_token = poll_for_token(&client, &client_id, &device_code).await?;
-
-    // Step 3: Authenticate with Xbox Live
-    tracing::info!("Authenticating with Xbox Live");
-    let xbl_token = authenticate_xbl(&client, &ms_token.access_token).await?;
-
-    // Step 4: Authenticate with XSTS
-    tracing::info!("Authenticating with XSTS");
-    let xsts_token = authenticate_xsts(&client, &xbl_token.token).await?;
-
-    // Step 5: Authenticate with Minecraft
-    tracing::info!("Authenticating with Minecraft");
-    let mc_token = authenticate_minecraft(&client, &xsts_token).await?;
-
-    // Step 6: Check entitlements
-    tracing::info!("Checking Minecraft entitlements");
-    let owns_game = check_entitlements(&client, &mc_token.access_token).await?;
-    
-    if !owns_game {
-        return Err(OxideError::Auth("This Microsoft account does not own Minecraft".into()));
-    }
-
-    // Step 7: Get profile
-    tracing::info!("Fetching Minecraft profile");
-    let profile = get_minecraft_profile(&client, &mc_token.access_token).await?;
-
-    // Calculate token expiry
-    let expires_at = Utc::now() + Duration::seconds(mc_token.expires_in as i64);
-
-    // Create account
-    let account = Account::new_microsoft(
-        profile.name,
-        profile.id,
-        mc_token.access_token,
-        ms_token.refresh_token.unwrap_or_default(),
-        expires_at,
-    );
-
-    tracing::info!("Successfully authenticated as {}", account.username);
-
-    Ok(account)
-}
-
-/// Refresh an existing Microsoft account token
-pub async fn refresh_microsoft_account(account: &mut Account) -> Result<()> {
-    let config = Config::load().unwrap_or_default();
-    
-    let client_id = config.api_keys.msa_client_id
-        .ok_or_else(|| OxideError::Auth("Microsoft Client ID not configured".into()))?;
-
-    let refresh_token = account.refresh_token.as_ref()
-        .ok_or_else(|| OxideError::Auth("No refresh token available".into()))?;
-
-    let client = reqwest::Client::new();
-
-    // Refresh MS token
-    let ms_token = refresh_ms_token(&client, &client_id, refresh_token).await?;
-
-    // Re-authenticate through the chain
-    let xbl_token = authenticate_xbl(&client, &ms_token.access_token).await?;
-    let xsts_token = authenticate_xsts(&client, &xbl_token.token).await?;
-    let mc_token = authenticate_minecraft(&client, &xsts_token).await?;
-
-    // Update account
-    account.access_token = Some(mc_token.access_token);
-    account.refresh_token = ms_token.refresh_token.or(account.refresh_token.take());
-    account.token_expires_at = Some(Utc::now() + Duration::seconds(mc_token.expires_in as i64));
-
-    Ok(())
-}
-
-// Response types
+// =============================================================================
+// Response Types
+// =============================================================================
 
 #[derive(Debug, Deserialize)]
 struct DeviceCodeResponse {
@@ -136,6 +73,9 @@ struct DeviceCodeResponse {
     verification_uri: String,
     expires_in: u32,
     interval: u32,
+    #[allow(dead_code)]
+    #[serde(default)]
+    message: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -143,7 +83,14 @@ struct MsTokenResponse {
     access_token: String,
     refresh_token: Option<String>,
     expires_in: u32,
+    #[allow(dead_code)]
     token_type: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct MsErrorResponse {
+    error: String,
+    error_description: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -152,6 +99,11 @@ struct XblResponse {
     token: String,
     #[serde(rename = "DisplayClaims")]
     display_claims: XblDisplayClaims,
+    #[allow(dead_code)]
+    #[serde(rename = "IssueInstant")]
+    issue_instant: Option<String>,
+    #[serde(rename = "NotAfter")]
+    not_after: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -164,38 +116,84 @@ struct XblXui {
     uhs: String,
 }
 
-#[derive(Debug, Clone)]
-struct XstsToken {
-    token: String,
-    user_hash: String,
+#[derive(Debug, Deserialize)]
+struct XstsErrorResponse {
+    #[allow(dead_code)]
+    #[serde(rename = "Identity")]
+    identity: Option<String>,
+    #[serde(rename = "XErr")]
+    xerr: Option<u64>,
+    #[allow(dead_code)]
+    #[serde(rename = "Message")]
+    message: Option<String>,
+    #[allow(dead_code)]
+    #[serde(rename = "Redirect")]
+    redirect: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct McTokenResponse {
     access_token: String,
+    #[allow(dead_code)]
     token_type: String,
     expires_in: u32,
 }
 
 #[derive(Debug, Deserialize)]
-struct McProfile {
+struct McProfileResponse {
     id: String,
     name: String,
+    #[serde(default)]
+    skins: Vec<McSkin>,
+    #[serde(default)]
+    capes: Vec<McCape>,
 }
 
 #[derive(Debug, Deserialize)]
-struct McEntitlements {
+struct McSkin {
+    id: String,
+    url: String,
+    variant: String,
+    #[serde(default)]
+    state: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct McCape {
+    id: String,
+    url: String,
+    #[serde(default)]
+    state: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct McEntitlementsResponse {
     items: Vec<McEntitlement>,
+    #[allow(dead_code)]
+    signature: Option<String>,
+    #[allow(dead_code)]
+    #[serde(rename = "keyId")]
+    key_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct McEntitlement {
     name: String,
+    #[allow(dead_code)]
+    signature: Option<String>,
 }
 
-// Authentication steps
+// =============================================================================
+// Public API
+// =============================================================================
 
-async fn get_device_code(client: &reqwest::Client, client_id: &str) -> Result<DeviceCodeResponse> {
+/// Start the Microsoft device code authentication flow
+/// Returns the device code info for the user to enter
+pub async fn start_device_code_flow(client_id: &str) -> Result<DeviceCodeInfo> {
+    let client = reqwest::Client::new();
+    
+    tracing::info!("Requesting device code from Microsoft");
+    
     let response = client
         .post(MS_DEVICE_CODE_URL)
         .form(&[
@@ -203,88 +201,303 @@ async fn get_device_code(client: &reqwest::Client, client_id: &str) -> Result<De
             ("scope", OAUTH_SCOPE),
         ])
         .send()
-        .await?
-        .json::<DeviceCodeResponse>()
         .await?;
-
-    Ok(response)
-}
-
-async fn poll_for_token(
-    client: &reqwest::Client,
-    client_id: &str,
-    device_code: &DeviceCodeResponse,
-) -> Result<MsTokenResponse> {
-    let interval = std::time::Duration::from_secs(device_code.interval as u64);
-    let timeout = std::time::Duration::from_secs(device_code.expires_in as u64);
-    let start = std::time::Instant::now();
-
-    loop {
-        if start.elapsed() > timeout {
-            return Err(OxideError::Auth("Device code expired".into()));
-        }
-
-        tokio::time::sleep(interval).await;
-
-        let response = client
-            .post(MS_TOKEN_URL)
-            .form(&[
-                ("client_id", client_id),
-                ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
-                ("device_code", &device_code.device_code),
-            ])
-            .send()
-            .await?;
-
-        if response.status().is_success() {
-            return Ok(response.json::<MsTokenResponse>().await?);
-        }
-
-        // Check for pending authorization
-        let error: serde_json::Value = response.json().await?;
-        let error_code = error.get("error").and_then(|e| e.as_str()).unwrap_or("");
-        
-        match error_code {
-            "authorization_pending" => continue,
-            "slow_down" => {
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                continue;
-            }
-            "authorization_declined" => {
-                return Err(OxideError::Auth("Authorization was declined".into()));
-            }
-            "expired_token" => {
-                return Err(OxideError::Auth("Device code expired".into()));
-            }
-            _ => {
-                return Err(OxideError::Auth(format!("Authentication error: {}", error_code)));
-            }
-        }
+    
+    if !response.status().is_success() {
+        let error_text = response.text().await.unwrap_or_default();
+        tracing::error!("Device code request failed: {}", error_text);
+        return Err(OxideError::Auth(format!("Failed to get device code: {}", error_text)));
     }
+    
+    let device_code: DeviceCodeResponse = response.json().await?;
+    
+    tracing::info!("Got device code, user should visit: {} and enter: {}", 
+        device_code.verification_uri, device_code.user_code);
+    
+    Ok(DeviceCodeInfo {
+        device_code: device_code.device_code,
+        user_code: device_code.user_code,
+        verification_uri: device_code.verification_uri,
+        expires_in: device_code.expires_in,
+        interval: device_code.interval.max(5), // Minimum 5 seconds
+        obtained_at: Utc::now(),
+    })
 }
 
-async fn refresh_ms_token(
-    client: &reqwest::Client,
+/// Poll for the MSA token using the device code
+/// This should be called repeatedly until it succeeds or fails
+pub async fn poll_device_code(
     client_id: &str,
-    refresh_token: &str,
-) -> Result<MsTokenResponse> {
+    device_code: &DeviceCodeInfo,
+) -> Result<PollResult> {
+    if device_code.is_expired() {
+        return Ok(PollResult::Expired);
+    }
+    
+    let client = reqwest::Client::new();
+    
     let response = client
         .post(MS_TOKEN_URL)
         .form(&[
             ("client_id", client_id),
+            ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+            ("device_code", &device_code.device_code),
+        ])
+        .send()
+        .await?;
+    
+    if response.status().is_success() {
+        let token: MsTokenResponse = response.json().await?;
+        return Ok(PollResult::Success(MsaToken {
+            access_token: token.access_token,
+            refresh_token: token.refresh_token,
+            expires_in: token.expires_in,
+        }));
+    }
+    
+    // Parse error response
+    let error: MsErrorResponse = response.json().await?;
+    
+    match error.error.as_str() {
+        "authorization_pending" => Ok(PollResult::Pending),
+        "slow_down" => Ok(PollResult::SlowDown),
+        "authorization_declined" => Ok(PollResult::Declined),
+        "expired_token" => Ok(PollResult::Expired),
+        "bad_verification_code" => {
+            Err(OxideError::Auth("Invalid device code".into()))
+        }
+        _ => {
+            let desc = error.error_description.unwrap_or_else(|| error.error.clone());
+            Err(OxideError::Auth(format!("Authentication error: {}", desc)))
+        }
+    }
+}
+
+/// Result of polling for device code
+#[derive(Debug)]
+pub enum PollResult {
+    /// Authentication succeeded
+    Success(MsaToken),
+    /// Still waiting for user to authenticate
+    Pending,
+    /// Need to slow down polling
+    SlowDown,
+    /// User declined authentication
+    Declined,
+    /// Device code expired
+    Expired,
+}
+
+/// MSA token from successful authentication
+#[derive(Debug, Clone)]
+pub struct MsaToken {
+    pub access_token: String,
+    pub refresh_token: Option<String>,
+    pub expires_in: u32,
+}
+
+/// Complete the authentication flow after getting MSA token
+pub async fn complete_authentication(
+    msa_token: MsaToken,
+    progress_tx: Option<mpsc::Sender<AuthProgressEvent>>,
+) -> Result<AccountData> {
+    let client = reqwest::Client::new();
+    let mut account_data = AccountData::default();
+    
+    // Store MSA token
+    let msa_expires = Utc::now() + Duration::seconds(msa_token.expires_in as i64);
+    account_data.msa_token = Token::new(msa_token.access_token.clone())
+        .with_expiry(msa_expires);
+    if let Some(ref rt) = msa_token.refresh_token {
+        account_data.msa_token.extra.insert("refresh_token".to_string(), rt.clone());
+    }
+    
+    // Step 1: Xbox Live User Authentication
+    send_progress(&progress_tx, AuthProgressEvent::StepStarted {
+        step: "xbox_user".to_string(),
+        description: "Logging in as Xbox user...".to_string(),
+    }).await;
+    
+    let xbl_token = authenticate_xbox_user(&client, &msa_token.access_token).await?;
+    account_data.user_token = xbl_token.clone();
+    
+    send_progress(&progress_tx, AuthProgressEvent::StepCompleted {
+        step: "xbox_user".to_string(),
+    }).await;
+    
+    // Step 2: XSTS Authorization for Minecraft
+    send_progress(&progress_tx, AuthProgressEvent::StepStarted {
+        step: "xsts".to_string(),
+        description: "Getting authorization for Minecraft services...".to_string(),
+    }).await;
+    
+    let xsts_token = authenticate_xsts(&client, &xbl_token, MINECRAFT_RELYING_PARTY).await?;
+    account_data.xsts_token = xsts_token.clone();
+    
+    send_progress(&progress_tx, AuthProgressEvent::StepCompleted {
+        step: "xsts".to_string(),
+    }).await;
+    
+    // Step 3: Minecraft Launcher Login
+    send_progress(&progress_tx, AuthProgressEvent::StepStarted {
+        step: "minecraft_login".to_string(),
+        description: "Getting Minecraft access token...".to_string(),
+    }).await;
+    
+    let mc_token = authenticate_minecraft(&client, &xsts_token).await?;
+    account_data.minecraft_token = mc_token;
+    
+    send_progress(&progress_tx, AuthProgressEvent::StepCompleted {
+        step: "minecraft_login".to_string(),
+    }).await;
+    
+    // Step 4: Check Entitlements
+    send_progress(&progress_tx, AuthProgressEvent::StepStarted {
+        step: "entitlements".to_string(),
+        description: "Checking game ownership...".to_string(),
+    }).await;
+    
+    let entitlement = check_entitlements(&client, &account_data.minecraft_token.token).await?;
+    account_data.minecraft_entitlement = entitlement;
+    
+    if !account_data.minecraft_entitlement.owns_minecraft {
+        return Err(OxideError::Auth(
+            "This Microsoft account does not own Minecraft Java Edition".into()
+        ));
+    }
+    
+    send_progress(&progress_tx, AuthProgressEvent::StepCompleted {
+        step: "entitlements".to_string(),
+    }).await;
+    
+    // Step 5: Get Minecraft Profile
+    send_progress(&progress_tx, AuthProgressEvent::StepStarted {
+        step: "profile".to_string(),
+        description: "Fetching Minecraft profile...".to_string(),
+    }).await;
+    
+    let profile = get_minecraft_profile(&client, &account_data.minecraft_token.token).await?;
+    account_data.minecraft_profile = profile;
+    
+    send_progress(&progress_tx, AuthProgressEvent::StepCompleted {
+        step: "profile".to_string(),
+    }).await;
+    
+    send_progress(&progress_tx, AuthProgressEvent::Completed {
+        username: account_data.minecraft_profile.name.clone(),
+    }).await;
+    
+    Ok(account_data)
+}
+
+/// Refresh an existing Microsoft account
+pub async fn refresh_microsoft_account(
+    account: &Account,
+    progress_tx: Option<mpsc::Sender<AuthProgressEvent>>,
+) -> Result<AccountData> {
+    let refresh_token = account.get_refresh_token()
+        .ok_or_else(|| OxideError::Auth("No refresh token available".into()))?;
+    
+    send_progress(&progress_tx, AuthProgressEvent::StepStarted {
+        step: "refresh_msa".to_string(),
+        description: "Refreshing Microsoft token...".to_string(),
+    }).await;
+    
+    let client = reqwest::Client::new();
+    
+    // Refresh the MSA token
+    let response = client
+        .post(MS_TOKEN_URL)
+        .form(&[
+            ("client_id", MSA_CLIENT_ID),
             ("grant_type", "refresh_token"),
-            ("refresh_token", refresh_token),
+            ("refresh_token", refresh_token.as_str()),
             ("scope", OAUTH_SCOPE),
         ])
         .send()
-        .await?
-        .json::<MsTokenResponse>()
         .await?;
-
-    Ok(response)
+    
+    if !response.status().is_success() {
+        let error_text = response.text().await.unwrap_or_default();
+        tracing::error!("Token refresh failed: {}", error_text);
+        return Err(OxideError::Auth("Failed to refresh token. Please log in again.".into()));
+    }
+    
+    let ms_token: MsTokenResponse = response.json().await?;
+    
+    send_progress(&progress_tx, AuthProgressEvent::StepCompleted {
+        step: "refresh_msa".to_string(),
+    }).await;
+    
+    // Complete the rest of the authentication flow
+    let msa_token = MsaToken {
+        access_token: ms_token.access_token,
+        refresh_token: ms_token.refresh_token.or(Some(refresh_token)),
+        expires_in: ms_token.expires_in,
+    };
+    
+    complete_authentication(msa_token, progress_tx).await
 }
 
-async fn authenticate_xbl(client: &reqwest::Client, ms_token: &str) -> Result<XblResponse> {
+/// Login with Microsoft account using device code flow (legacy wrapper)
+pub async fn login_microsoft() -> Result<Account> {
+    // Start device code flow
+    let device_code = start_device_code_flow(MSA_CLIENT_ID).await?;
+    
+    tracing::info!("Please open {} and enter code: {}", 
+        device_code.verification_uri, 
+        device_code.user_code
+    );
+    
+    // Open browser for user
+    let _ = webbrowser::open(&device_code.verification_uri);
+    
+    // Poll for token
+    let interval = std::time::Duration::from_secs(device_code.interval as u64);
+    
+    let msa_token = loop {
+        tokio::time::sleep(interval).await;
+        
+        match poll_device_code(MSA_CLIENT_ID, &device_code).await? {
+            PollResult::Success(token) => break token,
+            PollResult::Pending => continue,
+            PollResult::SlowDown => {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                continue;
+            }
+            PollResult::Declined => {
+                return Err(OxideError::Auth("Authentication was declined by the user".into()));
+            }
+            PollResult::Expired => {
+                return Err(OxideError::Auth("Device code expired. Please try again.".into()));
+            }
+        }
+    };
+    
+    // Complete authentication
+    let account_data = complete_authentication(msa_token, None).await?;
+    
+    // Create account
+    let account = Account::new_microsoft_from_data(account_data);
+    
+    tracing::info!("Successfully authenticated as {}", account.username);
+    
+    Ok(account)
+}
+
+// =============================================================================
+// Internal Authentication Steps
+// =============================================================================
+
+/// Helper to send progress events
+async fn send_progress(tx: &Option<mpsc::Sender<AuthProgressEvent>>, event: AuthProgressEvent) {
+    if let Some(ref tx) = tx {
+        let _ = tx.send(event).await;
+    }
+}
+
+/// Authenticate with Xbox Live user endpoint
+async fn authenticate_xbox_user(client: &reqwest::Client, ms_token: &str) -> Result<Token> {
     let body = serde_json::json!({
         "Properties": {
             "AuthMethod": "RPS",
@@ -294,30 +507,57 @@ async fn authenticate_xbl(client: &reqwest::Client, ms_token: &str) -> Result<Xb
         "RelyingParty": "http://auth.xboxlive.com",
         "TokenType": "JWT"
     });
-
+    
     let response = client
         .post(XBL_AUTH_URL)
         .header("Content-Type", "application/json")
         .header("Accept", "application/json")
+        .header("x-xbl-contract-version", "1")
         .json(&body)
         .send()
-        .await?
-        .json::<XblResponse>()
         .await?;
-
-    Ok(response)
+    
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_text = response.text().await.unwrap_or_default();
+        tracing::error!("Xbox user auth failed ({}): {}", status, error_text);
+        return Err(OxideError::Auth("Xbox Live authentication failed".into()));
+    }
+    
+    let xbl: XblResponse = response.json().await?;
+    
+    let user_hash = xbl.display_claims.xui.first()
+        .map(|x| x.uhs.clone())
+        .ok_or_else(|| OxideError::Auth("No user hash in Xbox response".into()))?;
+    
+    let mut token = Token::new(xbl.token);
+    token.extra.insert("uhs".to_string(), user_hash);
+    
+    // Parse expiry time if present
+    if let Some(ref not_after) = xbl.not_after {
+        if let Ok(expires) = chrono::DateTime::parse_from_rfc3339(not_after) {
+            token.expires_at = Some(expires.with_timezone(&Utc));
+        }
+    }
+    
+    Ok(token)
 }
 
-async fn authenticate_xsts(client: &reqwest::Client, xbl_token: &str) -> Result<XstsToken> {
+/// Authenticate with XSTS for a specific relying party
+async fn authenticate_xsts(
+    client: &reqwest::Client,
+    user_token: &Token,
+    relying_party: &str,
+) -> Result<Token> {
     let body = serde_json::json!({
         "Properties": {
             "SandboxId": "RETAIL",
-            "UserTokens": [xbl_token]
+            "UserTokens": [user_token.token]
         },
-        "RelyingParty": "rp://api.minecraftservices.com/",
+        "RelyingParty": relying_party,
         "TokenType": "JWT"
     });
-
+    
     let response = client
         .post(XSTS_AUTH_URL)
         .header("Content-Type", "application/json")
@@ -325,79 +565,208 @@ async fn authenticate_xsts(client: &reqwest::Client, xbl_token: &str) -> Result<
         .json(&body)
         .send()
         .await?;
-
+    
     if !response.status().is_success() {
-        let error: serde_json::Value = response.json().await?;
-        let xerr = error.get("XErr").and_then(|e| e.as_u64()).unwrap_or(0);
-        
-        let message = match xerr {
-            2148916233 => "This Microsoft account does not have an Xbox account",
-            2148916235 => "Xbox Live is not available in your country",
-            2148916236 | 2148916237 => "Adult verification required on Xbox.com",
-            2148916238 => "This account is a child account - add it to a family on Xbox.com",
-            _ => "Xbox authentication failed",
-        };
-        
-        return Err(OxideError::Auth(message.into()));
+        // Try to parse XSTS error
+        let error_text = response.text().await.unwrap_or_default();
+        if let Ok(error) = serde_json::from_str::<XstsErrorResponse>(&error_text) {
+            let message = match error.xerr {
+                Some(2148916233) => "This Microsoft account does not have an Xbox account. Please create one at xbox.com",
+                Some(2148916235) => "Xbox Live is not available in your country/region",
+                Some(2148916236) | Some(2148916237) => "This account requires adult verification. Please visit xbox.com",
+                Some(2148916238) => "This is a child account. Please add it to a family group at xbox.com",
+                _ => "Xbox authorization failed",
+            };
+            return Err(OxideError::Auth(message.into()));
+        }
+        return Err(OxideError::Auth(format!("XSTS authorization failed: {}", error_text)));
     }
-
-    let xbl_response: XblResponse = response.json().await?;
-    let user_hash = xbl_response.display_claims.xui.first()
+    
+    let xbl: XblResponse = response.json().await?;
+    
+    let user_hash = xbl.display_claims.xui.first()
         .map(|x| x.uhs.clone())
         .ok_or_else(|| OxideError::Auth("No user hash in XSTS response".into()))?;
-
-    Ok(XstsToken {
-        token: xbl_response.token,
-        user_hash,
-    })
+    
+    // Verify user hash matches
+    if let Some(expected_uhs) = user_token.extra.get("uhs") {
+        if &user_hash != expected_uhs {
+            tracing::warn!("XSTS user hash doesn't match user token hash");
+        }
+    }
+    
+    let mut token = Token::new(xbl.token);
+    token.extra.insert("uhs".to_string(), user_hash);
+    
+    if let Some(ref not_after) = xbl.not_after {
+        if let Ok(expires) = chrono::DateTime::parse_from_rfc3339(not_after) {
+            token.expires_at = Some(expires.with_timezone(&Utc));
+        }
+    }
+    
+    Ok(token)
 }
 
-async fn authenticate_minecraft(client: &reqwest::Client, xsts: &XstsToken) -> Result<McTokenResponse> {
+/// Authenticate with Minecraft services
+async fn authenticate_minecraft(client: &reqwest::Client, xsts_token: &Token) -> Result<Token> {
+    let user_hash = xsts_token.extra.get("uhs")
+        .ok_or_else(|| OxideError::Auth("Missing user hash for Minecraft auth".into()))?;
+    
+    // Use the public authentication endpoint (login_with_xbox)
+    // This is the correct endpoint for third-party launchers
     let body = serde_json::json!({
-        "identityToken": format!("XBL3.0 x={};{}", xsts.user_hash, xsts.token)
+        "identityToken": format!("XBL3.0 x={};{}", user_hash, xsts_token.token)
     });
-
+    
+    tracing::debug!("Authenticating with Minecraft services...");
+    
     let response = client
-        .post(MC_AUTH_URL)
+        .post(MC_LOGIN_URL)
         .header("Content-Type", "application/json")
         .header("Accept", "application/json")
         .json(&body)
         .send()
-        .await?
-        .json::<McTokenResponse>()
         .await?;
-
-    Ok(response)
+    
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_text = response.text().await.unwrap_or_default();
+        tracing::error!("Minecraft login failed ({}): {}", status, error_text);
+        return Err(OxideError::Auth(format!("Failed to get Minecraft access token: {}", error_text)));
+    }
+    
+    let mc: McTokenResponse = response.json().await?;
+    
+    tracing::info!("Successfully obtained Minecraft access token");
+    
+    let expires = Utc::now() + Duration::seconds(mc.expires_in as i64);
+    let token = Token::new(mc.access_token).with_expiry(expires);
+    
+    Ok(token)
 }
 
-async fn check_entitlements(client: &reqwest::Client, mc_token: &str) -> Result<bool> {
+/// Check Minecraft entitlements
+async fn check_entitlements(client: &reqwest::Client, mc_token: &str) -> Result<MinecraftEntitlement> {
+    // Generate request ID (like Prism does)
+    let request_id = uuid::Uuid::new_v4().to_string();
+    
+    let url = format!("{}?requestId={}", MC_ENTITLEMENTS_URL, request_id);
+    
     let response = client
-        .get(MC_ENTITLEMENTS_URL)
+        .get(&url)
         .header("Authorization", format!("Bearer {}", mc_token))
+        .header("Content-Type", "application/json")
+        .header("Accept", "application/json")
         .send()
-        .await?
-        .json::<McEntitlements>()
         .await?;
-
-    // Check for game_minecraft or product_minecraft
-    let owns = response.items.iter().any(|item| {
-        item.name == "game_minecraft" || item.name == "product_minecraft"
+    
+    if !response.status().is_success() {
+        tracing::warn!("Entitlements check failed, assuming ownership");
+        // If entitlements check fails, we'll verify ownership through profile
+        return Ok(MinecraftEntitlement {
+            owns_minecraft: true,
+            game_pass: false,
+        });
+    }
+    
+    let entitlements: McEntitlementsResponse = response.json().await?;
+    
+    let owns_minecraft = entitlements.items.iter().any(|item| {
+        item.name == "game_minecraft" 
+            || item.name == "product_minecraft"
+            || item.name == "game_minecraft_bedrock" // Some accounts have this
     });
-
-    Ok(owns)
+    
+    let game_pass = entitlements.items.iter().any(|item| {
+        item.name.contains("game_pass")
+    });
+    
+    Ok(MinecraftEntitlement {
+        owns_minecraft,
+        game_pass,
+    })
 }
 
-async fn get_minecraft_profile(client: &reqwest::Client, mc_token: &str) -> Result<McProfile> {
+/// Get Minecraft profile (UUID, username, skin, cape)
+async fn get_minecraft_profile(client: &reqwest::Client, mc_token: &str) -> Result<MinecraftProfile> {
     let response = client
         .get(MC_PROFILE_URL)
         .header("Authorization", format!("Bearer {}", mc_token))
+        .header("Content-Type", "application/json")
+        .header("Accept", "application/json")
         .send()
         .await?;
-
+    
     if response.status() == 404 {
-        return Err(OxideError::Auth("This account does not have a Minecraft profile".into()));
+        return Err(OxideError::Auth(
+            "This Microsoft account does not have a Minecraft profile. \
+             Please ensure you own Minecraft Java Edition and have set up a profile at minecraft.net".into()
+        ));
     }
+    
+    if !response.status().is_success() {
+        let error_text = response.text().await.unwrap_or_default();
+        tracing::error!("Profile fetch failed: {}", error_text);
+        return Err(OxideError::Auth("Failed to fetch Minecraft profile".into()));
+    }
+    
+    let profile: McProfileResponse = response.json().await?;
+    
+    // Find active skin
+    let skin = profile.skins.into_iter()
+        .find(|s| s.state == "ACTIVE")
+        .map(|s| SkinInfo {
+            id: s.id,
+            url: s.url,
+            variant: if s.variant.to_uppercase() == "SLIM" {
+                SkinVariant::Slim
+            } else {
+                SkinVariant::Classic
+            },
+            cached_data: None,
+        });
+    
+    // Find active cape
+    let cape = profile.capes.into_iter()
+        .find(|c| c.state == "ACTIVE")
+        .map(|c| CapeInfo {
+            id: c.id,
+            url: c.url,
+            cached_data: None,
+        });
+    
+    Ok(MinecraftProfile {
+        id: profile.id,
+        name: profile.name,
+        skin,
+        cape,
+    })
+}
 
-    let profile = response.json::<McProfile>().await?;
-    Ok(profile)
+/// Download skin texture data
+#[allow(dead_code)]
+pub async fn download_skin(skin_url: &str) -> Result<Vec<u8>> {
+    let client = reqwest::Client::new();
+    let response = client.get(skin_url).send().await?;
+    
+    if !response.status().is_success() {
+        return Err(OxideError::Download("Failed to download skin".into()));
+    }
+    
+    Ok(response.bytes().await?.to_vec())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_token_expiry() {
+        let token = Token::new("test".to_string());
+        assert!(!token.is_expired());
+        
+        let expired_token = Token::new("test".to_string())
+            .with_expiry(Utc::now() - Duration::hours(1));
+        assert!(expired_token.is_expired());
+    }
 }

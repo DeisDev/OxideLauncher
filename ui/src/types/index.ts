@@ -97,9 +97,31 @@ export interface ScreenshotInfo {
 export interface AccountInfo {
   id: string;
   username: string;
-  account_type: string;
+  uuid: string;
+  account_type: "Microsoft" | "Offline";
   is_active: boolean;
+  is_valid: boolean;
+  needs_refresh: boolean;
+  skin_url: string | null;
+  added_at: string;
+  last_used: string | null;
 }
+
+export interface DeviceCodeInfo {
+  device_code: string;
+  user_code: string;
+  verification_uri: string;
+  expires_in: number;
+  interval: number;
+}
+
+export type AuthProgressEventType =
+  | { type: "StepStarted"; data: { step: string; description: string } }
+  | { type: "DeviceCodeReady"; data: { user_code: string; verification_uri: string; expires_in: number } }
+  | { type: "PollingForAuth"; data: { message: string } }
+  | { type: "StepCompleted"; data: { step: string } }
+  | { type: "Failed"; data: { step: string; error: string } }
+  | { type: "Completed"; data: { username: string } };
 
 // Config Types
 export interface JavaConfig {
@@ -115,9 +137,16 @@ export interface MemoryConfig {
   max_memory: number;
 }
 
+export interface LoggingConfig {
+  debug_to_file: boolean;
+  max_file_size_mb: number;
+  max_files: number;
+}
+
 export interface Config {
   java: JavaConfig;
   memory: MemoryConfig;
+  logging: LoggingConfig;
 }
 
 // Version Types

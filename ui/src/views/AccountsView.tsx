@@ -1,6 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { UserPlus, CheckCircle, Trash2 } from "lucide-react";
+import { listen } from "@tauri-apps/api/event";
+import {
+  UserPlus,
+  CheckCircle,
+  Trash2,
+  RefreshCw,
+  Loader2,
+  Copy,
+  ExternalLink,
+  AlertCircle,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -25,23 +35,56 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-
-interface AccountInfo {
-  id: string;
-  username: string;
-  account_type: string;
-  is_active: boolean;
-}
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { AccountInfo, DeviceCodeInfo, AuthProgressEventType } from "@/types";
 
 export function AccountsView() {
   const [accounts, setAccounts] = useState<AccountInfo[]>([]);
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [showMsaDialog, setShowMsaDialog] = useState(false);
   const [newUsername, setNewUsername] = useState("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshingAccount, setRefreshingAccount] = useState<string | null>(null);
+  const [isMsaConfigured, setIsMsaConfigured] = useState(false);
+
+  // Microsoft login state
+  const [deviceCode, setDeviceCode] = useState<DeviceCodeInfo | null>(null);
+  const [msaStatus, setMsaStatus] = useState<string>("");
+  const [msaError, setMsaError] = useState<string | null>(null);
+  const [isPolling, setIsPolling] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
+  const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const deviceCodeRef = useRef<string | null>(null);
 
   useEffect(() => {
     loadAccounts();
+    checkMsaConfigured();
+
+    // Listen for auth progress events
+    const unlisten = listen<AuthProgressEventType>("auth_progress", (event) => {
+      const data = event.payload;
+      if (data.type === "StepStarted") {
+        setMsaStatus(data.data.description);
+      } else if (data.type === "PollingForAuth") {
+        setMsaStatus(data.data.message);
+      } else if (data.type === "StepCompleted") {
+        setMsaStatus(`Completed: ${data.data.step}`);
+      } else if (data.type === "Completed") {
+        setMsaStatus(`Welcome, ${data.data.username}!`);
+      } else if (data.type === "Failed") {
+        setMsaError(`${data.data.step}: ${data.data.error}`);
+      }
+    });
+
+    return () => {
+      unlisten.then((fn) => fn());
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
   }, []);
 
   const loadAccounts = async () => {
@@ -50,11 +93,24 @@ export function AccountsView() {
       setAccounts(data);
     } catch (error) {
       console.error("Failed to load accounts:", error);
+      setError(String(error));
+    }
+  };
+
+  const checkMsaConfigured = async () => {
+    try {
+      const configured = await invoke<boolean>("is_microsoft_configured");
+      setIsMsaConfigured(configured);
+    } catch (error) {
+      console.error("Failed to check MSA configuration:", error);
     }
   };
 
   const addOfflineAccount = async () => {
     if (!newUsername.trim()) return;
+
+    setIsLoading(true);
+    setError(null);
 
     try {
       await invoke("add_offline_account", { username: newUsername });
@@ -62,7 +118,140 @@ export function AccountsView() {
       setShowAddDialog(false);
       loadAccounts();
     } catch (error) {
-      console.error("Failed to add account:", error);
+      setError(String(error));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const startMicrosoftLogin = async () => {
+    setIsLoading(true);
+    setMsaError(null);
+    setMsaStatus("Starting Microsoft login...");
+    setDeviceCode(null);
+    setCodeCopied(false);
+
+    try {
+      const code = await invoke<DeviceCodeInfo>("start_microsoft_login");
+      console.log("Received device code from backend:", {
+        device_code_length: code.device_code.length,
+        device_code_preview: code.device_code.substring(0, 8),
+        user_code: code.user_code,
+      });
+      setDeviceCode(code);
+      deviceCodeRef.current = code.user_code;
+      setMsaStatus("Please enter the code in your browser");
+
+      // Start polling
+      setIsPolling(true);
+      startPolling(code);
+    } catch (error) {
+      setMsaError(String(error));
+      setIsLoading(false);
+    }
+  };
+
+  const startPolling = useCallback((code: DeviceCodeInfo) => {
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+    }
+
+    // Poll at the recommended interval (minimum 5 seconds)
+    const interval = Math.max(code.interval, 5) * 1000;
+    
+    console.log("Starting polling with device_code:", {
+      length: code.device_code.length,
+      preview: code.device_code.substring(0, 8),
+      interval: interval,
+    });
+
+    pollingIntervalRef.current = setInterval(async () => {
+      console.log("Polling with deviceCode:", code.device_code.substring(0, 8));
+      try {
+        const result = await invoke<AccountInfo | null>("poll_microsoft_login", {
+          deviceCode: code.device_code,
+        });
+
+        if (result) {
+          // Success!
+          if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current);
+            pollingIntervalRef.current = null;
+          }
+          setIsPolling(false);
+          setIsLoading(false);
+          setShowMsaDialog(false);
+          setDeviceCode(null);
+          setMsaStatus("");
+          loadAccounts();
+        }
+      } catch (error) {
+        // Check if it's a terminal error
+        const errorStr = String(error);
+        if (
+          errorStr.includes("declined") ||
+          errorStr.includes("expired") ||
+          errorStr.includes("not found")
+        ) {
+          if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current);
+            pollingIntervalRef.current = null;
+          }
+          setMsaError(errorStr);
+          setIsPolling(false);
+          setIsLoading(false);
+        }
+      }
+    }, interval);
+  }, []);
+
+  const cancelMicrosoftLogin = async () => {
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+
+    if (deviceCode) {
+      try {
+        await invoke("cancel_microsoft_login", { deviceCode: deviceCode.device_code });
+      } catch (e) {
+        // Ignore errors when canceling
+      }
+    }
+
+    setIsPolling(false);
+    setIsLoading(false);
+    setDeviceCode(null);
+    setMsaError(null);
+    setMsaStatus("");
+    setShowMsaDialog(false);
+  };
+
+  const copyCode = async () => {
+    if (deviceCode) {
+      await navigator.clipboard.writeText(deviceCode.user_code);
+      setCodeCopied(true);
+      setTimeout(() => setCodeCopied(false), 2000);
+    }
+  };
+
+  const openVerificationUrl = () => {
+    if (deviceCode) {
+      window.open(deviceCode.verification_uri, "_blank");
+    }
+  };
+
+  const refreshAccount = async (accountId: string) => {
+    setRefreshingAccount(accountId);
+    setError(null);
+
+    try {
+      await invoke("refresh_account", { accountId });
+      loadAccounts();
+    } catch (error) {
+      setError(String(error));
+    } finally {
+      setRefreshingAccount(null);
     }
   };
 
@@ -71,7 +260,7 @@ export function AccountsView() {
       await invoke("set_active_account", { accountId: id });
       loadAccounts();
     } catch (error) {
-      console.error("Failed to set active account:", error);
+      setError(String(error));
     }
   };
 
@@ -81,7 +270,7 @@ export function AccountsView() {
       await invoke("remove_account", { accountId: selectedAccount });
       loadAccounts();
     } catch (error) {
-      console.error("Failed to remove account:", error);
+      setError(String(error));
     } finally {
       setDeleteDialogOpen(false);
       setSelectedAccount(null);
@@ -93,48 +282,205 @@ export function AccountsView() {
     setDeleteDialogOpen(true);
   };
 
+  const getSkinAvatar = (account: AccountInfo) => {
+    if (account.skin_url) {
+      // Minecraft skin URLs point to the full skin, we need the face
+      // The face is at position (8,8) with size 8x8 in the skin texture
+      // For simplicity, we'll just show a colored avatar based on username
+    }
+    return null;
+  };
+
   return (
     <div className="max-w-4xl mx-auto">
       <div className="flex justify-between items-center mb-8 pb-5 border-b border-border">
         <h1 className="text-3xl font-bold">Accounts</h1>
-        <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-          <DialogTrigger asChild>
-            <Button>
-              <UserPlus className="mr-2 h-4 w-4" /> Add Offline Account
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add Offline Account</DialogTitle>
-              <DialogDescription>
-                Create an offline account with a custom username.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="py-4">
-              <Label htmlFor="username">Username</Label>
-              <Input
-                id="username"
-                value={newUsername}
-                onChange={(e) => setNewUsername(e.target.value)}
-                placeholder="Enter username"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") addOfflineAccount();
-                }}
-              />
-            </div>
-            <DialogFooter>
-              <Button variant="secondary" onClick={() => setShowAddDialog(false)}>
-                Cancel
+        <div className="flex gap-2">
+          {/* Microsoft Login Button */}
+          <Dialog open={showMsaDialog} onOpenChange={(open) => {
+            if (!open && isPolling) {
+              cancelMicrosoftLogin();
+            } else {
+              setShowMsaDialog(open);
+            }
+          }}>
+            <DialogTrigger asChild>
+              <Button
+                variant="default"
+                disabled={!isMsaConfigured}
+                title={!isMsaConfigured ? "Microsoft Client ID not configured" : undefined}
+              >
+                <UserPlus className="mr-2 h-4 w-4" /> Add Microsoft Account
               </Button>
-              <Button onClick={addOfflineAccount}>Add Account</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Sign in with Microsoft</DialogTitle>
+                <DialogDescription>
+                  {!deviceCode
+                    ? "Click below to start the sign-in process."
+                    : "Enter the code below at the Microsoft website to complete sign-in."}
+                </DialogDescription>
+              </DialogHeader>
+
+              {msaError && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{msaError}</AlertDescription>
+                </Alert>
+              )}
+
+              {!deviceCode ? (
+                <div className="flex flex-col items-center gap-4 py-4">
+                  <p className="text-sm text-muted-foreground text-center">
+                    You'll be asked to sign in with your Microsoft account that owns
+                    Minecraft Java Edition.
+                  </p>
+                  <Button onClick={startMicrosoftLogin} disabled={isLoading}>
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Starting...
+                      </>
+                    ) : (
+                      "Start Sign In"
+                    )}
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-4 py-4">
+                  <div className="text-center">
+                    <p className="text-sm text-muted-foreground mb-2">
+                      Go to{" "}
+                      <button
+                        onClick={openVerificationUrl}
+                        className="text-primary hover:underline inline-flex items-center gap-1"
+                      >
+                        {deviceCode.verification_uri}
+                        <ExternalLink className="h-3 w-3" />
+                      </button>
+                    </p>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      and enter this code:
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <code className="text-3xl font-mono font-bold tracking-wider bg-muted px-4 py-2 rounded-lg">
+                      {deviceCode.user_code}
+                    </code>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={copyCode}
+                      title="Copy code"
+                    >
+                      {codeCopied ? (
+                        <CheckCircle className="h-4 w-4 text-green-500" />
+                      ) : (
+                        <Copy className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>{msaStatus || "Waiting for authentication..."}</span>
+                  </div>
+
+                  <p className="text-xs text-muted-foreground">
+                    Code expires in {Math.floor(deviceCode.expires_in / 60)} minutes
+                  </p>
+                </div>
+              )}
+
+              <DialogFooter>
+                <Button variant="secondary" onClick={cancelMicrosoftLogin}>
+                  Cancel
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Offline Account Button */}
+          <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+            <DialogTrigger asChild>
+              <Button variant="outline">
+                <UserPlus className="mr-2 h-4 w-4" /> Add Offline Account
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add Offline Account</DialogTitle>
+                <DialogDescription>
+                  Create an offline account with a custom username. This won't let you
+                  play on online servers.
+                </DialogDescription>
+              </DialogHeader>
+              {error && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+              <div className="py-4">
+                <Label htmlFor="username">Username</Label>
+                <Input
+                  id="username"
+                  value={newUsername}
+                  onChange={(e) => setNewUsername(e.target.value)}
+                  placeholder="Enter username (3-16 characters)"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") addOfflineAccount();
+                  }}
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Only letters, numbers, and underscores allowed
+                </p>
+              </div>
+              <DialogFooter>
+                <Button variant="secondary" onClick={() => setShowAddDialog(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={addOfflineAccount} disabled={isLoading}>
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Adding...
+                    </>
+                  ) : (
+                    "Add Account"
+                  )}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
+      {/* MSA not configured warning */}
+      {!isMsaConfigured && (
+        <Alert className="mb-4">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Microsoft login is not configured. Add your Microsoft Azure Client ID in Settings
+            to enable Microsoft account login.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {error && !showAddDialog && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
       {accounts.length === 0 ? (
-        <div className="empty-state">
-          <p>No accounts found. Add an offline account to get started!</p>
+        <div className="empty-state text-center py-12">
+          <p className="text-muted-foreground">
+            No accounts found. Add an account to get started!
+          </p>
         </div>
       ) : (
         <div className="space-y-4">
@@ -147,25 +493,52 @@ export function AccountsView() {
             >
               <CardContent className="flex items-center justify-between p-6">
                 <div className="flex items-center gap-4">
-                  <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center text-lg font-semibold">
-                    {account.username.charAt(0).toUpperCase()}
+                  <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center text-lg font-semibold overflow-hidden">
+                    {getSkinAvatar(account) || account.username.charAt(0).toUpperCase()}
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
                       <h3 className="font-semibold text-lg">{account.username}</h3>
-                      {account.is_active && (
-                        <Badge variant="default">Active</Badge>
+                      {account.is_active && <Badge variant="default">Active</Badge>}
+                      {account.account_type === "Microsoft" && !account.is_valid && (
+                        <Badge variant="destructive">Expired</Badge>
                       )}
+                      {account.account_type === "Microsoft" &&
+                        account.is_valid &&
+                        account.needs_refresh && (
+                          <Badge variant="secondary">Needs Refresh</Badge>
+                        )}
                     </div>
                     <p className="text-sm text-muted-foreground">
                       {account.account_type}
+                      {account.uuid && (
+                        <span className="text-xs ml-2 opacity-50">
+                          {account.uuid.substring(0, 8)}...
+                        </span>
+                      )}
                     </p>
                   </div>
                 </div>
                 <div className="flex gap-2">
+                  {account.account_type === "Microsoft" && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => refreshAccount(account.id)}
+                      disabled={refreshingAccount === account.id}
+                      title="Refresh account tokens"
+                    >
+                      {refreshingAccount === account.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-4 w-4" />
+                      )}
+                    </Button>
+                  )}
                   {!account.is_active && (
                     <Button
                       variant="secondary"
+                      size="sm"
                       onClick={() => setActiveAccount(account.id)}
                     >
                       <CheckCircle className="mr-2 h-4 w-4" /> Set Active
@@ -173,9 +546,10 @@ export function AccountsView() {
                   )}
                   <Button
                     variant="destructive"
+                    size="sm"
                     onClick={() => openDeleteDialog(account.id)}
                   >
-                    <Trash2 className="mr-2 h-4 w-4" /> Remove
+                    <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
               </CardContent>

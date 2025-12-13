@@ -31,6 +31,11 @@ interface Config {
     min_memory: number;
     max_memory: number;
   };
+  logging: {
+    debug_to_file: boolean;
+    max_file_size_mb: number;
+    max_files: number;
+  };
 }
 
 interface JavaInstallation {
@@ -465,6 +470,51 @@ export function SettingsView() {
             </div>
             <p className="text-sm text-muted-foreground">
               Recommended: Set maximum memory to half of your system RAM.
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Logging & Debugging</CardTitle>
+            <CardDescription>
+              Configure debug logging for troubleshooting.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="debugLogging">Enable Debug Logging to File</Label>
+                <p className="text-sm text-muted-foreground">
+                  Write detailed debug logs to a file. Useful for troubleshooting issues.
+                </p>
+              </div>
+              <Switch
+                id="debugLogging"
+                checked={config?.logging.debug_to_file ?? false}
+                onCheckedChange={(checked) =>
+                  setConfig({
+                    ...config!,
+                    logging: { ...config!.logging, debug_to_file: checked },
+                  })
+                }
+              />
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                try {
+                  await invoke("open_logs_directory");
+                } catch (error) {
+                  console.error("Failed to open logs directory:", error);
+                }
+              }}
+            >
+              Open Logs Folder
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Note: Requires app restart to take effect. Logs are rotated daily and kept for {config?.logging.max_files ?? 5} days.
             </p>
           </CardContent>
         </Card>

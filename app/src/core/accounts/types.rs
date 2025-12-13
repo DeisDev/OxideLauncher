@@ -1,10 +1,195 @@
 //! Account data types
+//!
+//! Authentication flow (similar to Prism Launcher):
+//! 1. MSA Device Code Flow -> MS Access Token + Refresh Token
+//! 2. Xbox Live User Auth -> XBL Token + User Hash
+//! 3. XSTS Authorization (Minecraft relying party) -> XSTS Token
+//! 4. Minecraft Launcher Login -> Minecraft Access Token
+//! 5. Entitlements Check -> Verify game ownership
+//! 6. Minecraft Profile -> UUID, username, skin
 
 #![allow(dead_code)] // Types will be used as features are completed
 
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
+
+/// A generic token with expiry and extra data
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Token {
+    /// The token string
+    pub token: String,
+    
+    /// When the token was issued
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub issued_at: Option<DateTime<Utc>>,
+    
+    /// When the token expires
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<DateTime<Utc>>,
+    
+    /// Extra data (e.g., user hash for Xbox tokens)
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub extra: std::collections::HashMap<String, String>,
+}
+
+impl Token {
+    pub fn new(token: String) -> Self {
+        Self {
+            token,
+            issued_at: Some(Utc::now()),
+            expires_at: None,
+            extra: std::collections::HashMap::new(),
+        }
+    }
+
+    pub fn with_expiry(mut self, expires_at: DateTime<Utc>) -> Self {
+        self.expires_at = Some(expires_at);
+        self
+    }
+
+    pub fn with_extra(mut self, key: &str, value: &str) -> Self {
+        self.extra.insert(key.to_string(), value.to_string());
+        self
+    }
+
+    pub fn is_expired(&self) -> bool {
+        if let Some(expires) = self.expires_at {
+            Utc::now() >= expires
+        } else {
+            false
+        }
+    }
+
+    pub fn is_valid(&self) -> bool {
+        !self.token.is_empty() && !self.is_expired()
+    }
+}
+
+/// Minecraft profile information
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MinecraftProfile {
+    /// Profile UUID (without dashes)
+    pub id: String,
+    
+    /// Player username
+    pub name: String,
+    
+    /// Skin information
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skin: Option<SkinInfo>,
+    
+    /// Cape information
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cape: Option<CapeInfo>,
+}
+
+/// Skin texture information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkinInfo {
+    /// Skin ID
+    pub id: String,
+    
+    /// Texture URL
+    pub url: String,
+    
+    /// Skin variant (classic or slim)
+    #[serde(default)]
+    pub variant: SkinVariant,
+    
+    /// Cached texture data (base64 encoded)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cached_data: Option<String>,
+}
+
+/// Cape texture information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CapeInfo {
+    /// Cape ID
+    pub id: String,
+    
+    /// Texture URL
+    pub url: String,
+    
+    /// Cached texture data (base64 encoded)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cached_data: Option<String>,
+}
+
+/// Skin variant type
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SkinVariant {
+    #[default]
+    Classic,
+    Slim,
+}
+
+/// Minecraft entitlement information
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MinecraftEntitlement {
+    /// Whether the account owns Minecraft
+    pub owns_minecraft: bool,
+    
+    /// Whether this is a Game Pass subscription
+    pub game_pass: bool,
+}
+
+/// Account data containing all tokens and profile info (similar to Prism's AccountData)
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AccountData {
+    /// Microsoft account token (from OAuth)
+    #[serde(default)]
+    pub msa_token: Token,
+    
+    /// Xbox Live user token
+    #[serde(default)]
+    pub user_token: Token,
+    
+    /// XSTS token for Minecraft services
+    #[serde(default)]
+    pub xsts_token: Token,
+    
+    /// Minecraft access token (Yggdrasil-style)
+    #[serde(default)]
+    pub minecraft_token: Token,
+    
+    /// Minecraft profile
+    #[serde(default)]
+    pub minecraft_profile: MinecraftProfile,
+    
+    /// Minecraft entitlement
+    #[serde(default)]
+    pub minecraft_entitlement: MinecraftEntitlement,
+    
+    /// Last error message
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+}
+
+impl AccountData {
+    /// Check if we can use this account to play
+    pub fn is_playable(&self) -> bool {
+        self.minecraft_token.is_valid() 
+            && !self.minecraft_profile.id.is_empty()
+            && self.minecraft_entitlement.owns_minecraft
+    }
+    
+    /// Get the access token for launching
+    pub fn access_token(&self) -> &str {
+        &self.minecraft_token.token
+    }
+    
+    /// Get the profile UUID
+    pub fn profile_id(&self) -> &str {
+        &self.minecraft_profile.id
+    }
+    
+    /// Get the profile name
+    pub fn profile_name(&self) -> &str {
+        &self.minecraft_profile.name
+    }
+}
 
 /// A Minecraft account
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,21 +200,25 @@ pub struct Account {
     /// Account type
     pub account_type: AccountType,
     
-    /// Minecraft username/profile name
+    /// Minecraft username/profile name (cached from profile)
     pub username: String,
     
-    /// Minecraft UUID
+    /// Minecraft UUID (cached from profile)
     pub uuid: String,
     
-    /// Access token for authentication
+    /// Full account data for Microsoft accounts
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<AccountData>,
+    
+    /// Access token for authentication (legacy field, use data.minecraft_token instead)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub access_token: Option<String>,
     
-    /// Refresh token for MSA accounts
+    /// Refresh token for MSA accounts (legacy field, kept for migration)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refresh_token: Option<String>,
     
-    /// When the access token expires
+    /// When the access token expires (legacy field)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_expires_at: Option<DateTime<Utc>>,
     
@@ -37,7 +226,7 @@ pub struct Account {
     #[serde(default)]
     pub is_active: bool,
     
-    /// Skin data
+    /// Skin data (legacy field, use data.minecraft_profile.skin instead)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skin: Option<SkinData>,
     
@@ -50,7 +239,33 @@ pub struct Account {
 }
 
 impl Account {
-    /// Create a new Microsoft account
+    /// Create a new Microsoft account from account data
+    pub fn new_microsoft_from_data(data: AccountData) -> Self {
+        Self {
+            id: Uuid::new_v4().to_string(),
+            account_type: AccountType::Microsoft,
+            username: data.minecraft_profile.name.clone(),
+            uuid: data.minecraft_profile.id.clone(),
+            access_token: Some(data.minecraft_token.token.clone()),
+            refresh_token: Some(data.msa_token.extra.get("refresh_token").cloned().unwrap_or_default()),
+            token_expires_at: data.minecraft_token.expires_at,
+            is_active: false,
+            skin: data.minecraft_profile.skin.as_ref().map(|s| SkinData {
+                texture_url: Some(s.url.clone()),
+                cape_url: data.minecraft_profile.cape.as_ref().map(|c| c.url.clone()),
+                model: match s.variant {
+                    SkinVariant::Slim => SkinModel::Slim,
+                    SkinVariant::Classic => SkinModel::Classic,
+                },
+                cached_texture: s.cached_data.clone(),
+            }),
+            data: Some(data),
+            added_at: Utc::now(),
+            last_used: None,
+        }
+    }
+
+    /// Create a new Microsoft account (legacy constructor)
     pub fn new_microsoft(
         username: String,
         uuid: String,
@@ -68,6 +283,7 @@ impl Account {
             token_expires_at: Some(expires_at),
             is_active: false,
             skin: None,
+            data: None,
             added_at: Utc::now(),
             last_used: None,
         }
@@ -88,6 +304,7 @@ impl Account {
             token_expires_at: None,
             is_active: false,
             skin: None,
+            data: None,
             added_at: Utc::now(),
             last_used: None,
         }
@@ -97,8 +314,18 @@ impl Account {
     pub fn needs_refresh(&self) -> bool {
         match self.account_type {
             AccountType::Microsoft => {
-                if let Some(expires_at) = self.token_expires_at {
+                // Check the new data field first
+                if let Some(ref data) = self.data {
+                    if data.minecraft_token.is_expired() {
+                        return true;
+                    }
                     // Refresh if token expires in less than 5 minutes
+                    if let Some(expires) = data.minecraft_token.expires_at {
+                        return Utc::now() + chrono::Duration::minutes(5) > expires;
+                    }
+                }
+                // Fall back to legacy field
+                if let Some(expires_at) = self.token_expires_at {
                     Utc::now() + chrono::Duration::minutes(5) > expires_at
                 } else {
                     true
@@ -126,6 +353,11 @@ impl Account {
         match self.account_type {
             AccountType::Offline => true,
             AccountType::Microsoft => {
+                // Check new data field first
+                if let Some(ref data) = self.data {
+                    return data.is_playable();
+                }
+                // Fall back to legacy fields
                 if let Some(expires_at) = self.token_expires_at {
                     Utc::now() < expires_at
                 } else {
@@ -133,6 +365,36 @@ impl Account {
                 }
             }
         }
+    }
+
+    /// Get the access token for launching Minecraft
+    pub fn get_access_token(&self) -> String {
+        if let Some(ref data) = self.data {
+            return data.minecraft_token.token.clone();
+        }
+        self.access_token.clone().unwrap_or_default()
+    }
+
+    /// Get the MSA refresh token
+    pub fn get_refresh_token(&self) -> Option<String> {
+        if let Some(ref data) = self.data {
+            if let Some(rt) = data.msa_token.extra.get("refresh_token") {
+                return Some(rt.clone());
+            }
+        }
+        self.refresh_token.clone()
+    }
+
+    /// Update account data after refresh
+    pub fn update_data(&mut self, data: AccountData) {
+        self.username = data.minecraft_profile.name.clone();
+        self.uuid = data.minecraft_profile.id.clone();
+        self.access_token = Some(data.minecraft_token.token.clone());
+        self.token_expires_at = data.minecraft_token.expires_at;
+        if let Some(rt) = data.msa_token.extra.get("refresh_token") {
+            self.refresh_token = Some(rt.clone());
+        }
+        self.data = Some(data);
     }
 
     /// Update last used time
@@ -225,7 +487,7 @@ impl AuthSession {
         Self {
             username: account.username.clone(),
             uuid: account.uuid.clone(),
-            access_token: account.access_token.clone().unwrap_or_default(),
+            access_token: account.get_access_token(),
             user_type: match account.account_type {
                 AccountType::Microsoft => "msa".to_string(),
                 AccountType::Offline => "legacy".to_string(),
@@ -238,3 +500,94 @@ impl AuthSession {
         Self::from_account(&account)
     }
 }
+
+/// Device code response for MSA device code flow
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceCodeInfo {
+    /// The device code to poll for completion
+    pub device_code: String,
+    
+    /// The user code to display to the user
+    pub user_code: String,
+    
+    /// The URL where the user should enter the code
+    pub verification_uri: String,
+    
+    /// How many seconds until the device code expires
+    pub expires_in: u32,
+    
+    /// How many seconds to wait between polling attempts
+    pub interval: u32,
+    
+    /// When the device code was obtained
+    pub obtained_at: DateTime<Utc>,
+}
+
+impl DeviceCodeInfo {
+    pub fn is_expired(&self) -> bool {
+        let elapsed = (Utc::now() - self.obtained_at).num_seconds();
+        elapsed >= self.expires_in as i64
+    }
+}
+
+/// Authentication task state (similar to Prism's AccountTaskState)
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthTaskState {
+    /// Task created but not started
+    Created,
+    /// Task is currently running
+    Working,
+    /// Task completed successfully
+    Succeeded,
+    /// Task failed but might work if retried (network issues, etc.)
+    FailedSoft,
+    /// Task failed and won't work if retried (invalid credentials, etc.)
+    FailedHard,
+    /// Account is gone/deleted on Microsoft side
+    FailedGone,
+    /// Service is offline
+    Offline,
+    /// Service is disabled/unavailable
+    Disabled,
+}
+
+/// Authentication step progress event
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", content = "data")]
+pub enum AuthProgressEvent {
+    /// Starting a new authentication step
+    StepStarted {
+        step: String,
+        description: String,
+    },
+    
+    /// Device code ready - user needs to authenticate
+    DeviceCodeReady {
+        user_code: String,
+        verification_uri: String,
+        expires_in: u32,
+    },
+    
+    /// Polling for device code completion
+    PollingForAuth {
+        message: String,
+    },
+    
+    /// Authentication step completed
+    StepCompleted {
+        step: String,
+    },
+    
+    /// Authentication failed
+    Failed {
+        step: String,
+        error: String,
+    },
+    
+    /// All authentication steps completed
+    Completed {
+        username: String,
+    },
+}
+
