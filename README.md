@@ -11,27 +11,29 @@ It allows you to easily manage and install mods for multiple different installat
 All of our latest builds can be found in the releases tab.
 
 >[!NOTE]
->We do not <b>currently</b> have a website, but as we get further into development we >expect to eventually launch one with downloads and instructions hosted there. 
+>We do not <b>currently</b> have a website, but as we get further into development we expect to eventually launch one with downloads and instructions hosted there. 
 
-### In-Development Builds
+## Building from source
 
- In this projects current state, assume every build is a developer build. 
+### Windows
+
+cd "E:\Projects\OxideLauncher\app"
+cargo tauri build --no-bundle
+
+### Linux
+
+cd "$HOME/Projects/OxideLauncher/app"
+cargo tauri build --no-bundle
+
+<br />
 
 >[!WARNING] 
->We do NOT recommend that the average user downloads Oxide yet. 
+>Development is actively happening on a windows machine. Linux support is untested and experimental. 
 
 ## Community
 
 We are working on creating a community discord server and a subreddit soon, but it is rather low on our list of priorities. Feel free to make one yourself. 
 
-## Building From Source
-
-Follow these instructions for building the launcher from source:
-
 ## License 
 
 All launcher-related code in this repository is licensed under the GPL-3.0-only license.
-
-## Why Rust? 
-
-Efficiency™
