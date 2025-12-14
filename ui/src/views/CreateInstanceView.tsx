@@ -365,8 +365,8 @@ export function CreateInstanceView() {
         </div>
       </div>
 
-      <div className="flex flex-1 gap-6 overflow-hidden">
-        <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex flex-1 gap-6 min-h-0">
+        <div className="flex-1 flex flex-col min-w-0 min-h-0">
           <div className="flex items-center justify-between mb-2">
             <Label className="text-base font-semibold">Custom</Label>
             <Button variant="ghost" size="sm" onClick={loadMinecraftVersions}>
@@ -380,7 +380,7 @@ export function CreateInstanceView() {
             <span>Type</span>
           </div>
 
-          <ScrollArea className="flex-1 border rounded-md">
+          <ScrollArea className="h-[350px] border rounded-md">
             {loadingVersions ? (
               <div className="p-4 text-muted-foreground text-sm">Loading versions...</div>
             ) : filteredVersions.length === 0 ? (

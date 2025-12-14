@@ -17,8 +17,8 @@ export function Layout({ children }: LayoutProps) {
   ];
 
   return (
-    <div className="flex h-screen w-screen">
-      <nav className="w-56 bg-card border-r border-border flex flex-col">
+    <div className="flex h-screen w-screen overflow-hidden">
+      <nav className="w-56 bg-card border-r border-border flex flex-col flex-shrink-0">
         <div className="p-6 border-b border-border">
           <h2 className="text-xl font-bold bg-gradient-to-r from-primary to-green-400 bg-clip-text text-transparent">
             OxideLauncher
@@ -43,7 +43,11 @@ export function Layout({ children }: LayoutProps) {
           ))}
         </ul>
       </nav>
-      <main className="flex-1 overflow-auto p-8">{children}</main>
+      <main className="flex-1 overflow-auto">
+        <div key={location.pathname} className="page-transition view-container h-full p-8">
+          {children}
+        </div>
+      </main>
     </div>
   );
 }

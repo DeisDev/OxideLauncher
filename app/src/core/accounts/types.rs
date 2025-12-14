@@ -480,10 +480,19 @@ pub struct AuthSession {
     pub uuid: String,
     pub access_token: String,
     pub user_type: String,
+    /// Xbox User ID (for Microsoft accounts, empty for offline)
+    pub xuid: String,
+    /// Client ID (usually launcher's MSA client ID for Microsoft accounts)
+    pub client_id: String,
 }
 
 impl AuthSession {
     pub fn from_account(account: &Account) -> Self {
+        // For Microsoft accounts, try to get xuid from account data
+        let xuid = account.data.as_ref()
+            .and_then(|d| d.xsts_token.extra.get("xuid").cloned())
+            .unwrap_or_default();
+        
         Self {
             username: account.username.clone(),
             uuid: account.uuid.clone(),
@@ -492,12 +501,28 @@ impl AuthSession {
                 AccountType::Microsoft => "msa".to_string(),
                 AccountType::Offline => "legacy".to_string(),
             },
+            xuid,
+            client_id: match account.account_type {
+                AccountType::Microsoft => crate::core::accounts::microsoft::MSA_CLIENT_ID.to_string(),
+                AccountType::Offline => "".to_string(),
+            },
         }
     }
 
     pub fn offline(username: &str) -> Self {
         let account = Account::new_offline(username.to_string());
         Self::from_account(&account)
+    }
+
+    pub fn demo() -> Self {
+        Self {
+            username: "Demo".to_string(),
+            uuid: "00000000-0000-0000-0000-000000000000".to_string(),
+            access_token: "".to_string(),
+            user_type: "legacy".to_string(),
+            xuid: "".to_string(),
+            client_id: "".to_string(),
+        }
     }
 }
 

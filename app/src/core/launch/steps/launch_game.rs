@@ -1,13 +1,15 @@
 //! Launch game step - actually launches the Minecraft process
 
 use async_trait::async_trait;
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::core::launch::{LaunchContext, LaunchStep, LaunchStepResult};
-use crate::core::minecraft::version::{fetch_version_manifest, fetch_version_data, ArgumentValue, ArgumentValueInner};
+use crate::core::minecraft::version::{fetch_version_manifest, fetch_version_data, ArgumentValue, ArgumentValueInner, evaluate_rules_with_features, VersionData};
 use crate::core::minecraft::libraries::build_classpath;
+use crate::core::modloaders::ModloaderProfile;
 
 /// Step that launches the actual game process
 pub struct LaunchGameStep {
@@ -24,9 +26,140 @@ impl LaunchGameStep {
             process: None,
         }
     }
+
+    /// Load the modloader profile if it exists
+    fn load_modloader_profile(&self, context: &LaunchContext) -> Option<ModloaderProfile> {
+        let profile_path = context.instance.path.join("modloader_profile.json");
+        
+        tracing::debug!("Looking for modloader profile at: {:?}", profile_path);
+        
+        if profile_path.exists() {
+            tracing::debug!("Modloader profile file found, attempting to load...");
+            match ModloaderProfile::load(&profile_path) {
+                Ok(profile) => {
+                    tracing::info!(
+                        "Loaded modloader profile: uid='{}', version='{}', main_class='{}', libraries={}",
+                        profile.uid,
+                        profile.version,
+                        profile.main_class,
+                        profile.libraries.len()
+                    );
+                    
+                    // Log JVM and game arguments
+                    if !profile.jvm_arguments.is_empty() {
+                        tracing::debug!("JVM arguments: {:?}", profile.jvm_arguments);
+                    }
+                    if !profile.game_arguments.is_empty() {
+                        tracing::debug!("Game arguments: {:?}", profile.game_arguments);
+                    }
+                    if !profile.tweakers.is_empty() {
+                        tracing::debug!("Tweakers: {:?}", profile.tweakers);
+                    }
+                    
+                    Some(profile)
+                }
+                Err(e) => {
+                    tracing::error!("Failed to load modloader profile: {}", e);
+                    tracing::error!("Falling back to vanilla launch");
+                    None
+                }
+            }
+        } else {
+            tracing::debug!("No modloader profile found at {:?}", profile_path);
+            
+            // Also check if the instance has a mod_loader configured but profile is missing
+            if context.instance.mod_loader.is_some() {
+                tracing::warn!(
+                    "Instance '{}' has modloader configured but profile file is missing!",
+                    context.instance.name
+                );
+                tracing::warn!("The game will launch in vanilla mode. Re-setup the instance to fix this.");
+            }
+            
+            None
+        }
+    }
+
+    /// Build the classpath including modloader libraries
+    fn build_full_classpath(
+        &self,
+        context: &LaunchContext,
+        version_data: &VersionData,
+        modloader_profile: Option<&ModloaderProfile>,
+    ) -> String {
+        let separator = if cfg!(target_os = "windows") { ";" } else { ":" };
+        let mut paths: Vec<String> = Vec::new();
+
+        // First add modloader libraries (they need to be before vanilla libs)
+        if let Some(profile) = modloader_profile {
+            tracing::debug!("Adding {} modloader libraries to classpath", profile.libraries.len());
+            let mut found_count = 0;
+            let mut missing_count = 0;
+            
+            for lib in &profile.libraries {
+                if !lib.applies_to_current_os() {
+                    tracing::trace!("Skipping library {} (not for current OS)", lib.name);
+                    continue;
+                }
+                let lib_path = context.libraries_dir.join(lib.get_path());
+                if lib_path.exists() {
+                    paths.push(lib_path.to_string_lossy().to_string());
+                    found_count += 1;
+                } else {
+                    tracing::warn!("Modloader library not found: {} (expected at {:?})", lib.name, lib_path);
+                    missing_count += 1;
+                }
+            }
+            
+            tracing::debug!("Modloader libraries: {} found, {} missing", found_count, missing_count);
+            
+            if missing_count > 0 {
+                tracing::warn!("Some modloader libraries are missing! The game may not launch correctly.");
+            }
+        }
+
+        // Then add vanilla libraries and client jar
+        let client_jar = context.config.meta_dir()
+            .join("versions")
+            .join(&context.instance.minecraft_version)
+            .join(format!("{}.jar", &context.instance.minecraft_version));
+
+        let vanilla_classpath = build_classpath(version_data, &context.libraries_dir, &client_jar);
+        
+        // Append vanilla classpath entries (avoiding duplicates)
+        for path in vanilla_classpath.split(separator) {
+            if !paths.contains(&path.to_string()) {
+                paths.push(path.to_string());
+            }
+        }
+        
+        tracing::debug!("Total classpath entries: {}", paths.len());
+
+        paths.join(separator)
+    }
+
+    /// Get the main class (modloader overrides vanilla if present)
+    fn get_main_class(&self, version_data: &VersionData, modloader_profile: Option<&ModloaderProfile>) -> String {
+        if let Some(profile) = modloader_profile {
+            if !profile.main_class.is_empty() {
+                tracing::info!("Using modloader main class: {}", profile.main_class);
+                return profile.main_class.clone();
+            } else {
+                tracing::warn!("Modloader profile has empty main_class, falling back to vanilla");
+            }
+        }
+        
+        tracing::info!("Using vanilla main class: {}", version_data.main_class);
+        version_data.main_class.clone()
+    }
     
     /// Build JVM arguments
-    fn build_jvm_args(&self, context: &LaunchContext, version_data: &crate::core::minecraft::version::VersionData) -> Vec<String> {
+    fn build_jvm_args(
+        &self,
+        context: &LaunchContext,
+        version_data: &VersionData,
+        modloader_profile: Option<&ModloaderProfile>,
+    ) -> Vec<String> {
         let mut args = Vec::new();
         
         // Memory settings
@@ -35,14 +168,9 @@ impl LaunchGameStep {
         
         args.push(format!("-Xms{}M", min_mem));
         args.push(format!("-Xmx{}M", max_mem));
-        
+
         // Build classpath
-        let client_jar = context.config.meta_dir()
-            .join("versions")
-            .join(&context.instance.minecraft_version)
-            .join(format!("{}.jar", &context.instance.minecraft_version));
-        
-        let classpath = build_classpath(version_data, &context.libraries_dir, &client_jar);
+        let classpath = self.build_full_classpath(context, version_data, modloader_profile);
         
         // Process JVM arguments from version data
         if let Some(ref arguments) = version_data.arguments {
@@ -52,7 +180,8 @@ impl LaunchGameStep {
                         args.push(self.substitute_jvm_variable(s, context, &classpath));
                     }
                     ArgumentValue::Conditional { rules, value } => {
-                        if crate::core::minecraft::version::evaluate_rules(rules) {
+                        // Use features-aware rule evaluation
+                        if evaluate_rules_with_features(rules, &context.features) {
                             let values = match value {
                                 ArgumentValueInner::Single(s) => vec![s.clone()],
                                 ArgumentValueInner::Multiple(v) => v.clone(),
@@ -97,7 +226,8 @@ impl LaunchGameStep {
                         args.push(self.substitute_game_variable(s, context, version_data));
                     }
                     ArgumentValue::Conditional { rules, value } => {
-                        if crate::core::minecraft::version::evaluate_rules(rules) {
+                        // Use features-aware rule evaluation
+                        if evaluate_rules_with_features(rules, &context.features) {
                             let values = match value {
                                 ArgumentValueInner::Single(s) => vec![s.clone()],
                                 ArgumentValueInner::Multiple(v) => v.clone(),
@@ -166,6 +296,10 @@ impl LaunchGameStep {
             .replace("${assets_index_name}", &version_data.assets)
             .replace("${version_type}", &format!("{:?}", version_data.version_type))
             .replace("${user_properties}", "{}")
+            // Microsoft/Xbox authentication variables (required for 1.16.4+)
+            // For offline accounts, these can be empty or placeholder values
+            .replace("${clientid}", &context.auth_session.client_id)
+            .replace("${auth_xuid}", &context.auth_session.xuid)
     }
 }
 
@@ -190,6 +324,9 @@ impl LaunchStep for LaunchGameStep {
                 return LaunchStepResult::Failed("Java path not set. CheckJava step may have failed.".to_string());
             }
         };
+        
+        // Load modloader profile if present
+        let modloader_profile = self.load_modloader_profile(context);
         
         // Fetch version data
         self.status = Some("Fetching version data...".to_string());
@@ -217,13 +354,40 @@ impl LaunchStep for LaunchGameStep {
         // Build arguments
         self.status = Some("Building launch arguments...".to_string());
         
-        let mut args = self.build_jvm_args(context, &version_data);
+        // Build JVM arguments with modloader support
+        let mut args = self.build_jvm_args(context, &version_data, modloader_profile.as_ref());
         
-        // Add main class
-        args.push(version_data.main_class.clone());
+        // Add modloader-specific JVM arguments
+        if let Some(ref profile) = modloader_profile {
+            for arg in &profile.jvm_arguments {
+                let substituted = self.substitute_jvm_variable(
+                    arg, 
+                    context, 
+                    &self.build_full_classpath(context, &version_data, Some(profile))
+                );
+                args.push(substituted);
+            }
+        }
+        
+        // Add main class (modloader overrides vanilla)
+        let main_class = self.get_main_class(&version_data, modloader_profile.as_ref());
+        args.push(main_class);
         
         // Add game arguments
         args.extend(self.build_game_args(context, &version_data));
+        
+        // Add modloader-specific game arguments
+        if let Some(ref profile) = modloader_profile {
+            for arg in &profile.game_arguments {
+                args.push(self.substitute_game_variable(arg, context, &version_data));
+            }
+            
+            // Add tweaker classes (for legacy modloaders like old Forge/LiteLoader)
+            for tweaker in &profile.tweakers {
+                args.push("--tweakClass".to_string());
+                args.push(tweaker.clone());
+            }
+        }
         
         self.progress = 0.5;
         
@@ -257,13 +421,23 @@ impl LaunchStep for LaunchGameStep {
         
         info!("Launching Minecraft from: {:?}", game_dir);
         
-        let child = match Command::new(&program)
+        let mut command = Command::new(&program);
+        command
             .args(&final_args)
             .current_dir(&game_dir)
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
+            .stderr(Stdio::piped());
+        
+        // On Windows, prevent the console window from appearing
+        #[cfg(windows)]
         {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            const DETACHED_PROCESS: u32 = 0x00000008;
+            command.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
+        }
+        
+        let child = match command.spawn() {
             Ok(child) => child,
             Err(e) => {
                 return LaunchStepResult::Failed(format!(
@@ -304,18 +478,14 @@ impl LaunchStep for LaunchGameStep {
     fn status(&self) -> Option<String> {
         self.status.clone()
     }
+    
+    fn get_game_process(&self) -> Option<Arc<Mutex<Child>>> {
+        self.process.clone()
+    }
 }
 
 impl Default for LaunchGameStep {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-/// Get the child process (for external monitoring)
-impl LaunchGameStep {
-    #[allow(dead_code)] // Part of public API for process monitoring
-    pub fn get_process(&self) -> Option<Arc<Mutex<Child>>> {
-        self.process.clone()
     }
 }

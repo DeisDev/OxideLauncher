@@ -121,8 +121,17 @@ export function SettingsTab({ instanceId, instance }: SettingsTabProps) {
   const detectJavas = async () => {
     setDetectingJava(true);
     try {
-      const javas = await invoke<JavaInfo[]>("detect_java_installations");
-      setDetectedJavas(javas);
+      const javas = await invoke<JavaInfo[]>("detect_java");
+      // Map the backend response to the expected JavaInfo format
+      const mappedJavas = javas.map((j: any) => ({
+        path: j.path,
+        version: j.version,
+        major_version: j.major_version,
+        vendor: j.vendor,
+        architecture: j.arch,
+        is_64bit: j.is_64bit,
+      }));
+      setDetectedJavas(mappedJavas);
     } catch (error) {
       console.error("Failed to detect Java:", error);
     } finally {
@@ -133,7 +142,15 @@ export function SettingsTab({ instanceId, instance }: SettingsTabProps) {
   const loadDownloadableJavas = async () => {
     setLoadingDownloadable(true);
     try {
-      const javas = await invoke<JavaDownloadInfo[]>("get_downloadable_javas");
+      // Use fetch_available_java_versions command
+      const versions = await invoke<{ major: number; name: string; is_lts: boolean }[]>("fetch_available_java_versions");
+      // Map to JavaDownloadInfo format
+      const javas: JavaDownloadInfo[] = versions.map(v => ({
+        vendor: "Eclipse Temurin",
+        version: v.major.toString(),
+        architecture: "x64",
+        url: "", // URL is handled by backend
+      }));
       setDownloadableJavas(javas);
     } catch (error) {
       console.error("Failed to load downloadable javas:", error);
@@ -145,11 +162,11 @@ export function SettingsTab({ instanceId, instance }: SettingsTabProps) {
   const downloadJava = async (java: JavaDownloadInfo) => {
     setDownloadingJava(java.version);
     try {
-      const javaPath = await invoke<string>("download_java", {
-        vendor: java.vendor,
-        version: java.version,
+      // Use download_java command with majorVersion parameter
+      const result = await invoke<{ path: string }>("download_java", {
+        majorVersion: parseInt(java.version),
       });
-      updateSetting("java_path", javaPath);
+      updateSetting("java_path", result.path);
       await detectJavas();
     } catch (error) {
       console.error("Failed to download Java:", error);

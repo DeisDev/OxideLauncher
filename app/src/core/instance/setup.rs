@@ -25,6 +25,7 @@ pub enum SetupProgress {
     ExtractingNatives,
     DownloadingAssetIndex,
     DownloadingAssets { current: usize, total: usize },
+    InstallingModloader(String),
     Complete,
     Error(String),
 }
@@ -188,7 +189,127 @@ pub async fn setup_instance(
         }
     }
     
+    // 8. Install modloader if present
+    if let Some(ref mod_loader) = instance.mod_loader {
+        send_progress(SetupProgress::InstallingModloader(mod_loader.loader_type.name().to_string()));
+        
+        install_modloader_for_instance(instance, &libraries_dir).await?;
+    }
+    
     send_progress(SetupProgress::Complete);
+    
+    Ok(())
+}
+
+/// Install modloader and save profile for an instance
+pub async fn install_modloader_for_instance(
+    instance: &Instance,
+    libraries_dir: &std::path::Path,
+) -> Result<()> {
+    use crate::core::modloaders::{install_modloader, InstallProgress, get_installer};
+    
+    let mod_loader = match &instance.mod_loader {
+        Some(ml) => ml,
+        None => return Ok(()),
+    };
+    
+    // Resolve "latest" version to actual version
+    let loader_version = if mod_loader.version == "latest" || mod_loader.version.is_empty() {
+        tracing::info!("Resolving 'latest' version for {} (MC {})", 
+            mod_loader.loader_type.name(), 
+            instance.minecraft_version
+        );
+        
+        let installer = get_installer(mod_loader.loader_type);
+        let versions = installer.get_versions(&instance.minecraft_version).await?;
+        
+        if versions.is_empty() {
+            return Err(crate::core::error::OxideError::Modloader(format!(
+                "No {} versions available for Minecraft {}",
+                mod_loader.loader_type.name(),
+                instance.minecraft_version
+            )));
+        }
+        
+        let resolved = versions.first().unwrap().clone();
+        tracing::info!("Resolved to version: {}", resolved);
+        resolved
+    } else {
+        mod_loader.version.clone()
+    };
+    
+    tracing::info!(
+        "Installing {} {} for instance '{}' (MC {})",
+        mod_loader.loader_type.name(),
+        loader_version,
+        instance.name,
+        instance.minecraft_version
+    );
+    
+    tracing::debug!("Libraries directory: {:?}", libraries_dir);
+    tracing::debug!("Instance path: {:?}", instance.path);
+    
+    // Install the modloader
+    let profile = install_modloader(
+        mod_loader.loader_type,
+        &instance.minecraft_version,
+        &loader_version,
+        &libraries_dir.to_path_buf(),
+        Some(Box::new(|progress| {
+            match progress {
+                InstallProgress::FetchingMetadata => {
+                    tracing::debug!("Fetching modloader metadata...");
+                }
+                InstallProgress::DownloadingLibraries { current, total } => {
+                    tracing::debug!("Downloading library {}/{}", current, total);
+                }
+                InstallProgress::Processing(msg) => {
+                    tracing::debug!("Processing: {}", msg);
+                }
+                InstallProgress::Complete => {
+                    tracing::info!("Modloader installation complete");
+                }
+                InstallProgress::Failed(err) => {
+                    tracing::error!("Modloader installation failed: {}", err);
+                }
+            }
+        })),
+    ).await?;
+    
+    tracing::info!(
+        "Modloader profile created: uid='{}', version='{}', main_class='{}', libraries={}",
+        profile.uid,
+        profile.version,
+        profile.main_class,
+        profile.libraries.len()
+    );
+    
+    // Log library details
+    for lib in &profile.libraries {
+        tracing::debug!("  Library: {} (url: {:?})", lib.name, lib.url);
+    }
+    
+    // Save the profile to the instance directory
+    let profile_path = instance.path.join("modloader_profile.json");
+    
+    // Ensure the instance directory exists
+    if !instance.path.exists() {
+        tracing::debug!("Creating instance directory: {:?}", instance.path);
+        std::fs::create_dir_all(&instance.path)?;
+    }
+    
+    profile.save(&profile_path)?;
+    
+    // Verify the file was saved
+    if profile_path.exists() {
+        let saved_size = std::fs::metadata(&profile_path).map(|m| m.len()).unwrap_or(0);
+        tracing::info!("Modloader profile saved to {:?} ({} bytes)", profile_path, saved_size);
+    } else {
+        tracing::error!("Failed to save modloader profile - file does not exist after save!");
+        return Err(crate::core::error::OxideError::Instance(
+            "Failed to save modloader profile".to_string()
+        ));
+    }
     
     Ok(())
 }

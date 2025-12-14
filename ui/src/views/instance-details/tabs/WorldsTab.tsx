@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Copy, Trash2, RefreshCw } from "lucide-react";
+import { Copy, Trash2, RefreshCw, FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -79,6 +79,15 @@ export function WorldsTab({ instanceId }: WorldsTabProps) {
     }
   };
 
+  const openFolder = async () => {
+    try {
+      await invoke("open_saves_folder", { instanceId });
+    } catch (error) {
+      console.error("Failed to open folder:", error);
+      alert("Failed to open folder: " + error);
+    }
+  };
+
   return (
     <Card className="h-full">
       <CardHeader className="pb-3">
@@ -87,10 +96,16 @@ export function WorldsTab({ instanceId }: WorldsTabProps) {
             <CardTitle>Worlds</CardTitle>
             <CardDescription>Manage your saved worlds</CardDescription>
           </div>
-          <Button variant="outline" size="sm" onClick={loadWorlds} disabled={loading}>
-            <RefreshCw className={cn("h-4 w-4 mr-2", loading && "animate-spin")} />
-            Refresh
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={openFolder}>
+              <FolderOpen className="h-4 w-4 mr-2" />
+              Open Folder
+            </Button>
+            <Button variant="outline" size="sm" onClick={loadWorlds} disabled={loading}>
+              <RefreshCw className={cn("h-4 w-4 mr-2", loading && "animate-spin")} />
+              Refresh
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent>

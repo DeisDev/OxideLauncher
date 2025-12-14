@@ -337,21 +337,97 @@ pub fn current_arch() -> &'static str {
     }
 }
 
-/// Evaluate rules to determine if something applies
+/// Launch features used for conditional argument evaluation
+/// These control which conditional arguments are included in the launch command
+#[derive(Debug, Clone, Default)]
+pub struct LaunchFeatures {
+    /// Whether the user is in demo mode (no valid license)
+    pub is_demo_user: bool,
+    /// Whether custom resolution is set
+    pub has_custom_resolution: bool,
+    /// Whether quick play is supported (MC 1.20+)
+    pub has_quick_plays_support: bool,
+    /// Whether to quick play into a singleplayer world
+    pub is_quick_play_singleplayer: bool,
+    /// Whether to quick play into a multiplayer server
+    pub is_quick_play_multiplayer: bool,
+    /// Whether to quick play into a realm
+    pub is_quick_play_realms: bool,
+}
+
+impl LaunchFeatures {
+    /// Create features for normal launch
+    pub fn normal() -> Self {
+        Self::default()
+    }
+    
+    /// Create features for demo mode
+    pub fn demo() -> Self {
+        Self {
+            is_demo_user: true,
+            ..Default::default()
+        }
+    }
+    
+    /// Create features with custom resolution
+    pub fn with_custom_resolution(mut self) -> Self {
+        self.has_custom_resolution = true;
+        self
+    }
+}
+
+/// Evaluate rules to determine if something applies (OS-only, no features)
 pub fn evaluate_rules(rules: &[Rule]) -> bool {
+    evaluate_rules_with_features(rules, &LaunchFeatures::default())
+}
+
+/// Evaluate rules with feature context to determine if something applies
+pub fn evaluate_rules_with_features(rules: &[Rule], features: &LaunchFeatures) -> bool {
     let current_os = current_os_name();
     let current_arch = current_arch();
     
     let mut result = false;
     
     for rule in rules {
-        let matches = if let Some(os) = &rule.os {
+        // Check OS conditions
+        let os_matches = if let Some(os) = &rule.os {
             let os_matches = os.name.as_ref().map(|n| n == current_os).unwrap_or(true);
             let arch_matches = os.arch.as_ref().map(|a| a == current_arch).unwrap_or(true);
             os_matches && arch_matches
         } else {
             true
         };
+        
+        // Check feature conditions
+        let features_match = if let Some(rule_features) = &rule.features {
+            let mut all_match = true;
+            
+            // Check each feature that's specified in the rule
+            if let Some(&required) = rule_features.get("is_demo_user") {
+                all_match = all_match && (features.is_demo_user == required);
+            }
+            if let Some(&required) = rule_features.get("has_custom_resolution") {
+                all_match = all_match && (features.has_custom_resolution == required);
+            }
+            if let Some(&required) = rule_features.get("has_quick_plays_support") {
+                all_match = all_match && (features.has_quick_plays_support == required);
+            }
+            if let Some(&required) = rule_features.get("is_quick_play_singleplayer") {
+                all_match = all_match && (features.is_quick_play_singleplayer == required);
+            }
+            if let Some(&required) = rule_features.get("is_quick_play_multiplayer") {
+                all_match = all_match && (features.is_quick_play_multiplayer == required);
+            }
+            if let Some(&required) = rule_features.get("is_quick_play_realms") {
+                all_match = all_match && (features.is_quick_play_realms == required);
+            }
+            
+            all_match
+        } else {
+            true
+        };
+        
+        let matches = os_matches && features_match;
         
         if matches {
             result = rule.action == RuleAction::Allow;

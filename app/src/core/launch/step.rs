@@ -1,6 +1,8 @@
 //! Launch step trait and types
 
 use async_trait::async_trait;
+use std::process::Child;
+use std::sync::{Arc, Mutex};
 #[allow(unused_imports)] // May be used by implementations
 use crate::core::error::Result;
 use super::{LaunchContext, MessageLevel};
@@ -55,6 +57,11 @@ pub trait LaunchStep: Send + Sync {
     
     /// Get status message
     fn status(&self) -> Option<String> {
+        None
+    }
+    
+    /// Get the launched game process (if this step launches a game)
+    fn get_game_process(&self) -> Option<Arc<Mutex<Child>>> {
         None
     }
 }

@@ -18,11 +18,22 @@ use tokio::sync::mpsc;
 
 /// Microsoft Azure App Registration Client ID
 ///
+/// IMPORTANT: To use Microsoft authentication, you MUST create your own Azure AD application:
+/// 1. Go to https://portal.azure.com
+/// 2. Azure Active Directory > App registrations > New registration
+/// 3. Name: Your launcher name
+/// 4. Supported account types: "Accounts in any organizational directory and personal Microsoft accounts"
+/// 5. After creation, go to Authentication > Add platform > Mobile and desktop applications
+/// 6. Add redirect URI: http://localhost
+/// 7. Under Advanced settings, set "Allow public client flows" to YES
+/// 8. Copy the Application (client) ID and replace the value below
+///
+/// For detailed setup instructions, see AZURE_SETUP.md
+///
 /// If you fork this project and use any of our custom IDs, API keys, or similar credentials,
 /// you agree to the Terms of Service (TOS) of the respective platform (e.g., Microsoft/Azure).
 /// Be mindful: abusing these APIs or credentials can lead to service disruption for many users.
 /// Always use your own credentials where possible and respect rate limits and fair use policies.
-/// Replace this with your actual Azure Client ID from the Azure Portal
 pub const MSA_CLIENT_ID: &str = "1f8c7ebd-3140-4b03-830a-dd0e5ec3218f";
 
 use crate::core::error::{OxideError, Result};
@@ -54,8 +65,9 @@ const MC_ENTITLEMENTS_URL: &str = "https://api.minecraftservices.com/entitlement
 #[allow(dead_code)]
 const XBOX_PROFILE_URL: &str = "https://profile.xboxlive.com/users/me/profile/settings";
 
-/// OAuth scopes needed
-const OAUTH_SCOPE: &str = "XboxLive.signin XboxLive.offline_access";
+/// OAuth scopes needed for Xbox Live authentication
+/// Note: Case matters! Must be "signin" not "SignIn" and "offline_access" not "offline-access"
+const OAUTH_SCOPE: &str = "XboxLive.signin offline_access";
 
 /// Relying parties for XSTS authorization
 const MINECRAFT_RELYING_PARTY: &str = "rp://api.minecraftservices.com/";
@@ -440,6 +452,7 @@ pub async fn refresh_microsoft_account(
 }
 
 /// Login with Microsoft account using device code flow (legacy wrapper)
+#[allow(dead_code)]
 pub async fn login_microsoft() -> Result<Account> {
     // Start device code flow
     let device_code = start_device_code_flow(MSA_CLIENT_ID).await?;

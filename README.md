@@ -1,4 +1,5 @@
 <p align="center">
+![Banner for OxideLauncher](ui\art\oxidebannershort.svg)
 Oxide Launcher is a custom launcher for Minecraft built with rust and tauri.<br />
 It allows you to easily manage and install mods for multiple different installations of the game.<br />
 <br />This launcher is heavily inspired by Prism Launcher but we are <b>Neither</b> endorsed by or a fork of it. 

@@ -1,5 +1,6 @@
-import { useRef, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 import {
   Search,
   X,
@@ -12,6 +13,9 @@ import {
   RefreshCw,
   Package,
   Trash2,
+  Globe,
+  Bug,
+  Code,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -40,6 +44,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { InstanceInfo, ModSearchResult, InstalledMod } from "../types";
 import { formatFileSize } from "../utils";
+import { ModDownloadDialog } from "@/components/dialogs/ModDownloadDialog";
 
 interface ModsTabProps {
   instanceId: string;
@@ -47,18 +52,13 @@ interface ModsTabProps {
 }
 
 export function ModsTab({ instanceId, instance }: ModsTabProps) {
-  const [modSearchQuery, setModSearchQuery] = useState("");
-  const [modSearchResults, setModSearchResults] = useState<ModSearchResult[]>([]);
   const [installedMods, setInstalledMods] = useState<InstalledMod[]>([]);
   const [filteredMods, setFilteredMods] = useState<InstalledMod[]>([]);
   const [modFilter, setModFilter] = useState("");
   const [selectedMods, setSelectedMods] = useState<Set<string>>(new Set());
-  const [searchingMods, setSearchingMods] = useState(false);
-  const [downloadingMod, setDownloadingMod] = useState<string | null>(null);
   const [deleteModDialog, setDeleteModDialog] = useState<string | null>(null);
-  const [showModSearch, setShowModSearch] = useState(false);
-  const [searchPlatform, setSearchPlatform] = useState<"modrinth" | "curseforge">("modrinth");
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showModDownloadDialog, setShowModDownloadDialog] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
     loadInstalledMods();
@@ -83,43 +83,6 @@ export function ModsTab({ instanceId, instance }: ModsTabProps) {
       setInstalledMods(mods);
     } catch (error) {
       console.error("Failed to load installed mods:", error);
-    }
-  };
-
-  const searchMods = async () => {
-    if (!modSearchQuery.trim()) return;
-
-    setSearchingMods(true);
-    try {
-      const results = await invoke<ModSearchResult[]>("search_mods", {
-        query: modSearchQuery,
-        minecraftVersion: instance.minecraft_version,
-        modLoader: instance.mod_loader.toLowerCase(),
-        platform: searchPlatform,
-      });
-      setModSearchResults(results);
-    } catch (error) {
-      console.error("Failed to search mods:", error);
-      alert("Failed to search mods: " + error);
-    } finally {
-      setSearchingMods(false);
-    }
-  };
-
-  const downloadMod = async (modId: string, platform: string) => {
-    setDownloadingMod(modId);
-    try {
-      await invoke("download_mod", {
-        instanceId,
-        modId: modId,
-        platform: platform.toLowerCase(),
-      });
-      await loadInstalledMods();
-    } catch (error) {
-      console.error("Failed to download mod:", error);
-      alert("Failed to download mod: " + error);
-    } finally {
-      setDownloadingMod(null);
     }
   };
 
@@ -218,19 +181,59 @@ export function ModsTab({ instanceId, instance }: ModsTabProps) {
     }
   };
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    
-    for (const file of Array.from(files)) {
-      if (!file.name.endsWith('.jar')) {
-        alert(`Skipping ${file.name}: Only .jar files are supported`);
+  const handleFileSelect = async () => {
+    try {
+      const selected = await open({
+        multiple: true,
+        filters: [{ name: "Jar Files", extensions: ["jar"] }],
+      });
+      
+      if (selected && Array.isArray(selected)) {
+        await processFilePaths(selected);
+      } else if (selected) {
+        await processFilePaths([selected]);
+      }
+    } catch (error) {
+      console.error("Failed to select files:", error);
+    }
+  };
+
+  const processFilePaths = async (filePaths: string[]) => {
+    for (const filePath of filePaths) {
+      if (!filePath.endsWith('.jar')) {
+        alert(`Skipping ${filePath}: Only .jar files are supported`);
         continue;
       }
       try {
         await invoke("add_local_mod", {
           instanceId,
-          filePath: file.name,
+          filePath,
+        });
+      } catch (error) {
+        console.error("Failed to add mod:", error);
+        alert(`Failed to add mod: ${error}`);
+      }
+    }
+    await loadInstalledMods();
+  };
+
+  const processFiles = async (files: File[]) => {
+    // For drag and drop, we need to read the file and save it
+    for (const file of files) {
+      if (!file.name.endsWith('.jar')) {
+        alert(`Skipping ${file.name}: Only .jar files are supported`);
+        continue;
+      }
+      try {
+        // Convert File to ArrayBuffer, then save via Tauri
+        const arrayBuffer = await file.arrayBuffer();
+        const uint8Array = new Uint8Array(arrayBuffer);
+        const base64 = btoa(String.fromCharCode(...uint8Array));
+        
+        await invoke("add_local_mod_from_bytes", {
+          instanceId,
+          filename: file.name,
+          data: base64,
         });
       } catch (error) {
         console.error("Failed to add mod:", error);
@@ -238,9 +241,29 @@ export function ModsTab({ instanceId, instance }: ModsTabProps) {
       }
     }
     await loadInstalledMods();
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length === 0) return;
+
+    await processFiles(files);
   };
 
   const toggleModSelection = (filename: string) => {
@@ -269,22 +292,12 @@ export function ModsTab({ instanceId, instance }: ModsTabProps) {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Hidden file input for adding local mods */}
-      <input
-        type="file"
-        ref={fileInputRef}
-        onChange={handleFileSelect}
-        accept=".jar"
-        multiple
-        className="hidden"
-      />
-
       {/* Action Toolbar */}
       <div className="flex items-center gap-2 pb-4 border-b flex-wrap">
         <Button 
           variant="default" 
           size="sm" 
-          onClick={() => setShowModSearch(!showModSearch)}
+          onClick={() => setShowModDownloadDialog(true)}
         >
           <Download className="mr-2 h-4 w-4" />
           Download Mods
@@ -292,7 +305,7 @@ export function ModsTab({ instanceId, instance }: ModsTabProps) {
         <Button 
           variant="outline" 
           size="sm" 
-          onClick={() => fileInputRef.current?.click()}
+          onClick={handleFileSelect}
         >
           <Plus className="mr-2 h-4 w-4" />
           Add File
@@ -339,111 +352,6 @@ export function ModsTab({ instanceId, instance }: ModsTabProps) {
         </Button>
       </div>
 
-      {/* Mod Search Panel (collapsible) */}
-      {showModSearch && (
-        <div className="py-4 border-b">
-          {/* Platform Selection */}
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-sm text-muted-foreground">Search on:</span>
-            <div className="flex gap-1">
-              <Button
-                variant={searchPlatform === "modrinth" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setSearchPlatform("modrinth")}
-                className="h-7 px-3 text-xs"
-              >
-                Modrinth
-              </Button>
-              <Button
-                variant={searchPlatform === "curseforge" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setSearchPlatform("curseforge")}
-                className="h-7 px-3 text-xs"
-              >
-                CurseForge
-              </Button>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-4 mb-4">
-            <Input
-              placeholder={`Search mods on ${searchPlatform === "modrinth" ? "Modrinth" : "CurseForge"}...`}
-              value={modSearchQuery}
-              onChange={(e) => setModSearchQuery(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && searchMods()}
-              className="flex-1"
-            />
-            <Button onClick={searchMods} disabled={searchingMods}>
-              <Search className="mr-2 h-4 w-4" />
-              {searchingMods ? "Searching..." : "Search"}
-            </Button>
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              onClick={() => {
-                setShowModSearch(false);
-                setModSearchResults([]);
-              }}
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-          
-          {modSearchResults.length > 0 && (
-            <ScrollArea className="h-64">
-              <div className="grid gap-2">
-                {modSearchResults.map((mod) => (
-                  <div 
-                    key={mod.id} 
-                    className="flex items-center gap-3 p-2 rounded-md border bg-card hover:bg-muted/50"
-                  >
-                    {mod.icon_url ? (
-                      <img
-                        src={mod.icon_url}
-                        alt={mod.name}
-                        className="w-10 h-10 rounded object-cover"
-                      />
-                    ) : (
-                      <div className="w-10 h-10 rounded bg-muted flex items-center justify-center">
-                        <Package className="h-5 w-5 text-muted-foreground" />
-                      </div>
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="font-medium truncate">{mod.name}</p>
-                        <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                          {mod.platform === "curseforge" ? "CF" : "MR"}
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground truncate">
-                        by {mod.author} • {mod.downloads.toLocaleString()} downloads
-                      </p>
-                    </div>
-                    <Button
-                      onClick={() => downloadMod(mod.id, mod.platform)}
-                      disabled={downloadingMod === mod.id}
-                      size="sm"
-                    >
-                      {downloadingMod === mod.id ? (
-                        <>
-                          <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                          Installing...
-                        </>
-                      ) : (
-                        <>
-                          <Download className="mr-2 h-4 w-4" />
-                          Install
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </ScrollArea>
-          )}
-        </div>
-      )}
-
       {/* Filter */}
       <div className="py-3">
         <div className="relative">
@@ -458,7 +366,24 @@ export function ModsTab({ instanceId, instance }: ModsTabProps) {
       </div>
 
       {/* Mods Table */}
-      <div className="flex-1 overflow-hidden border rounded-md">
+      <div 
+        className={cn(
+          "flex-1 overflow-hidden border rounded-md transition-colors",
+          isDragging && "border-primary border-2 bg-primary/5"
+        )}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        {isDragging && (
+          <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10 pointer-events-none">
+            <div className="text-center">
+              <Package className="h-12 w-12 mx-auto mb-2 text-primary" />
+              <p className="text-lg font-semibold">Drop mod files here</p>
+              <p className="text-sm text-muted-foreground">Only .jar files will be accepted</p>
+            </div>
+          </div>
+        )}
         <ScrollArea className="h-full">
           <Table>
             <TableHeader>
@@ -475,15 +400,16 @@ export function ModsTab({ instanceId, instance }: ModsTabProps) {
                 <TableHead className="w-32">Version</TableHead>
                 <TableHead className="w-36">Last Modified</TableHead>
                 <TableHead className="w-24">Provider</TableHead>
+                <TableHead className="w-24">Links</TableHead>
                 <TableHead className="w-20 text-right">Size</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredMods.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                     {installedMods.length === 0 
-                      ? "No mods installed. Click 'Download Mods' to get started."
+                      ? "No mods installed. Click 'Download Mods' or drag & drop .jar files here."
                       : "No mods match your filter."
                     }
                   </TableCell>
@@ -540,6 +466,43 @@ export function ModsTab({ instanceId, instance }: ModsTabProps) {
                         </Badge>
                       )}
                     </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        {mod.homepage && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            title="Homepage"
+                            onClick={() => window.open(mod.homepage!, "_blank")}
+                          >
+                            <Globe className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                        {mod.issues_url && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            title="Issue Tracker"
+                            onClick={() => window.open(mod.issues_url!, "_blank")}
+                          >
+                            <Bug className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                        {mod.source_url && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            title="Source Code"
+                            onClick={() => window.open(mod.source_url!, "_blank")}
+                          >
+                            <Code className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
                     <TableCell className="text-right text-muted-foreground text-sm">
                       {formatFileSize(mod.size)}
                     </TableCell>
@@ -588,6 +551,17 @@ export function ModsTab({ instanceId, instance }: ModsTabProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Mod Download Dialog */}
+      <ModDownloadDialog
+        open={showModDownloadDialog}
+        onOpenChange={setShowModDownloadDialog}
+        instanceId={instanceId}
+        instanceName={instance.name}
+        minecraftVersion={instance.minecraft_version}
+        modLoader={instance.mod_loader}
+        onModsInstalled={loadInstalledMods}
+      />
     </div>
   );
 }

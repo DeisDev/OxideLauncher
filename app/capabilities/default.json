@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/windows-schema.json",
+  "identifier": "default",
+  "description": "Default capabilities for OxideLauncher",
+  "windows": ["*"],
+  "permissions": [
+    "core:default",
+    "shell:default",
+    "shell:allow-open",
+    "dialog:default",
+    "dialog:allow-open"
+  ]
+}

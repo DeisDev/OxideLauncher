@@ -206,13 +206,34 @@ export function InstancesView() {
     setDeleteDialogOpen(true);
   };
 
+  // Skeleton loading component that maintains layout consistency
+  const LoadingSkeleton = () => (
+    <div className="w-full">
+      <div className="flex flex-wrap justify-between items-center gap-4 mb-8 pb-5 border-b border-border">
+        <div className="skeleton h-9 w-64" />
+        <div className="skeleton h-10 w-40" />
+      </div>
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-4">
+        {[1, 2, 3, 4, 5, 6].map((i) => (
+          <Card key={i} className="overflow-hidden">
+            <div className="skeleton h-28" />
+            <CardContent className="p-3 space-y-2">
+              <div className="skeleton h-5 w-3/4" />
+              <div className="skeleton h-4 w-1/2" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+
   if (loading) {
-    return <div className="loading">Loading instances...</div>;
+    return <LoadingSkeleton />;
   }
 
   return (
-    <div className="max-w-[1600px] mx-auto">
-      <div className="flex justify-between items-center mb-8 pb-5 border-b border-border">
+    <div className="w-full">
+      <div className="flex flex-wrap justify-between items-center gap-4 mb-8 pb-5 border-b border-border">
         <h1 className="text-3xl font-bold bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
           Minecraft Instances
         </h1>

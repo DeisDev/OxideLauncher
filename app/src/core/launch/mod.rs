@@ -19,6 +19,7 @@ use crate::core::error::Result;
 use crate::core::instance::Instance;
 use crate::core::accounts::AuthSession;
 use crate::core::config::Config;
+use crate::core::minecraft::version::LaunchFeatures;
 
 /// Context passed to launch steps containing all necessary information
 #[derive(Clone)]
@@ -31,6 +32,9 @@ pub struct LaunchContext {
     
     /// Global configuration
     pub config: Config,
+    
+    /// Launch features for conditional arguments
+    pub features: LaunchFeatures,
     
     /// Path to the Java executable (set by CheckJava step)
     pub java_path: Option<std::path::PathBuf>,
@@ -57,7 +61,13 @@ pub struct LaunchContext {
 
 impl LaunchContext {
     /// Create a new launch context
+    #[allow(dead_code)]
     pub fn new(instance: Instance, auth_session: AuthSession, config: Config) -> Self {
+        Self::with_features(instance, auth_session, config, LaunchFeatures::normal())
+    }
+    
+    /// Create a new launch context with specific features
+    pub fn with_features(instance: Instance, auth_session: AuthSession, config: Config, features: LaunchFeatures) -> Self {
         let game_dir = instance.game_dir();
         let natives_dir = game_dir.join("natives");
         let libraries_dir = config.libraries_dir();
@@ -67,6 +77,7 @@ impl LaunchContext {
             instance,
             auth_session,
             config,
+            features,
             java_path: None,
             java_version: None,
             java_architecture: None,

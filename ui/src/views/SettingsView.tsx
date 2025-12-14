@@ -21,21 +21,57 @@ import {
 import { Switch } from "@/components/ui/switch";
 
 interface Config {
+  data_dir: string;
+  instances_dir: string | null;
+  theme: string;
   java: {
     custom_path: string | null;
-    extra_args: string;
-    auto_download: boolean;
+    use_bundled: boolean;
+    auto_detect: boolean;
+    extra_args: string[];
     skip_compatibility_check: boolean;
+    auto_download: boolean;
+  };
+  network: {
+    proxy: null;
+    max_concurrent_downloads: number;
+    timeout_seconds: number;
+    user_agent: string;
+  };
+  ui: {
+    show_news: boolean;
+    instance_view: string;
+    window_width: number;
+    window_height: number;
+    last_instance: string | null;
+    cat_mode: boolean;
   };
   memory: {
     min_memory: number;
     max_memory: number;
+    permgen: number;
   };
   logging: {
     debug_to_file: boolean;
     max_file_size_mb: number;
     max_files: number;
   };
+  api_keys: {
+    msa_client_id: string | null;
+    curseforge_api_key: string | null;
+    modrinth_api_token: string | null;
+  };
+}
+
+// Helper to convert extra_args array to string for display
+function extraArgsToString(args: string[]): string {
+  return args.join(' ');
+}
+
+// Helper to convert extra_args string to array for storage
+function stringToExtraArgs(str: string): string[] {
+  if (!str.trim()) return [];
+  return str.split(/\s+/).filter(arg => arg.length > 0);
 }
 
 interface JavaInstallation {
@@ -165,8 +201,38 @@ export function SettingsView() {
     }
   };
 
+  // Skeleton loading component that maintains layout consistency
+  const LoadingSkeleton = () => (
+    <div className="max-w-3xl mx-auto">
+      <div className="skeleton h-9 w-32 mb-8" />
+      <div className="space-y-6">
+        <Card>
+          <CardHeader>
+            <div className="skeleton h-6 w-40" />
+            <div className="skeleton h-4 w-64 mt-2" />
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="skeleton h-[300px]" />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <div className="skeleton h-6 w-40" />
+            <div className="skeleton h-4 w-64 mt-2" />
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="skeleton h-10" />
+              <div className="skeleton h-10" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+
   if (loading) {
-    return <div className="loading">Loading settings...</div>;
+    return <LoadingSkeleton />;
   }
 
   if (!config) {
@@ -363,17 +429,17 @@ export function SettingsView() {
               <Label htmlFor="javaArgs">Extra Java Arguments</Label>
               <Input
                 id="javaArgs"
-                value={config?.java.extra_args}
+                value={extraArgsToString(config?.java.extra_args ?? [])}
                 onChange={(e) =>
                   setConfig({
                     ...config!,
-                    java: { ...config!.java, extra_args: e.target.value },
+                    java: { ...config!.java, extra_args: stringToExtraArgs(e.target.value) },
                   })
                 }
                 placeholder="-XX:+UseG1GC"
               />
               <p className="text-sm text-muted-foreground">
-                Additional JVM arguments passed to Minecraft.
+                Additional JVM arguments passed to Minecraft. Separate multiple arguments with spaces.
               </p>
             </div>
             

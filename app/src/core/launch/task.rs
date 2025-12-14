@@ -1,5 +1,8 @@
 //! Launch task manager
 
+use std::process::Child;
+use std::sync::{Arc, Mutex};
+
 use crate::core::error::Result;
 use super::{
     LaunchStep, LaunchStepResult, LaunchContext, MessageLevel,
@@ -81,6 +84,9 @@ pub struct LaunchTask {
     
     /// Whether abort was requested
     abort_requested: bool,
+    
+    /// Game process (if launched)
+    game_process: Option<Arc<Mutex<Child>>>,
 }
 
 impl LaunchTask {
@@ -96,6 +102,7 @@ impl LaunchTask {
             log_sender,
             log_receiver: Some(log_receiver),
             abort_requested: false,
+            game_process: None,
         }
     }
     
@@ -234,6 +241,14 @@ impl LaunchTask {
             }
         }
         
+        // Try to capture the game process from any step that launched it
+        for step in &self.steps {
+            if let Some(process) = step.get_game_process() {
+                self.game_process = Some(process);
+                break;
+            }
+        }
+        
         self.state = LaunchState::Completed;
         self.log(MessageLevel::Launcher, "Launch process completed successfully");
         self.finalize_steps(true).await;
@@ -291,6 +306,11 @@ impl LaunchTask {
     #[allow(dead_code)] // Part of public API
     pub fn context_mut(&mut self) -> &mut LaunchContext {
         &mut self.context
+    }
+    
+    /// Get the game process (if launched)
+    pub fn take_game_process(&mut self) -> Option<Arc<Mutex<Child>>> {
+        self.game_process.take()
     }
     
     /// Substitute variables in a command string

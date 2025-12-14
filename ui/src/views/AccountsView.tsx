@@ -292,10 +292,10 @@ export function AccountsView() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto">
-      <div className="flex justify-between items-center mb-8 pb-5 border-b border-border">
+    <div className="w-full">
+      <div className="flex flex-wrap justify-between items-center gap-4 mb-8 pb-5 border-b border-border">
         <h1 className="text-3xl font-bold">Accounts</h1>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {/* Microsoft Login Button */}
           <Dialog open={showMsaDialog} onOpenChange={(open) => {
             if (!open && isPolling) {

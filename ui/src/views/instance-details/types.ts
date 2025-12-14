@@ -51,6 +51,9 @@ export interface InstalledMod {
   modified: string | null;
   provider: string | null;
   icon_url: string | null;
+  homepage: string | null;
+  issues_url: string | null;
+  source_url: string | null;
 }
 
 export interface JavaInstallation {

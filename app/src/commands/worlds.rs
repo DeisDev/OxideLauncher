@@ -136,3 +136,51 @@ pub async fn get_world_icon(
     let saves_dir = instance.game_dir().join("saves");
     Ok(world::get_world_icon(&saves_dir, &folder_name))
 }
+
+/// Open saves folder
+#[tauri::command]
+pub async fn open_saves_folder(
+    state: State<'_, AppState>,
+    instance_id: String,
+) -> Result<(), String> {
+    let instance = {
+        let instances = state.instances.lock().unwrap();
+        instances.iter()
+            .find(|i| i.id == instance_id)
+            .ok_or_else(|| "Instance not found".to_string())?
+            .clone()
+    };
+    
+    let saves_dir = instance.game_dir().join("saves");
+    
+    // Create if doesn't exist
+    if !saves_dir.exists() {
+        std::fs::create_dir_all(&saves_dir).map_err(|e| e.to_string())?;
+    }
+    
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(&saves_dir)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&saves_dir)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&saves_dir)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+    
+    Ok(())
+}

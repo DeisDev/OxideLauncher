@@ -6,6 +6,7 @@ mod types;
 mod list;
 mod create;
 mod setup;
+mod components;
 
 pub use types::*;
 #[allow(unused_imports)] // Will be used as features are completed
@@ -14,3 +15,4 @@ pub use list::InstanceList;
 pub use create::create_instance;
 #[allow(unused_imports)]
 pub use setup::{setup_instance, SetupProgress};
+pub use components::*;

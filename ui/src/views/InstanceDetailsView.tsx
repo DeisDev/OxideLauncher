@@ -1,10 +1,16 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
-import { ArrowLeft, Save } from "lucide-react";
+import { ArrowLeft, Save, Play, Square, ChevronDown, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
 // Import modular tab components
@@ -29,10 +35,14 @@ export function InstanceDetailsView() {
   const [activeTab, setActiveTab] = useState<TabType>("log");
   const [instance, setInstance] = useState<InstanceInfo | null>(null);
   const [loading, setLoading] = useState(true);
+  const [launching, setLaunching] = useState(false);
+  const [isRunning, setIsRunning] = useState(false);
 
   // Log state
   const [logContent, setLogContent] = useState<string[]>([]);
-  const logEndRef = useRef<HTMLDivElement>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [autoScroll, setAutoScroll] = useState(true);
+  const [wrapLines, setWrapLines] = useState(false);
 
   // Notes state
   const [notes, setNotes] = useState("");
@@ -43,6 +53,13 @@ export function InstanceDetailsView() {
 
     const interval = setInterval(async () => {
       try {
+        // Check if instance is running
+        const running = await invoke<boolean>("is_instance_running", {
+          instanceId: id,
+        });
+        setIsRunning(running);
+
+        // Fetch logs
         const logs = await invoke<string[]>("get_instance_logs", {
           instanceId: id,
         });
@@ -50,7 +67,7 @@ export function InstanceDetailsView() {
           setLogContent(logs);
         }
       } catch (error) {
-        console.error("Failed to fetch logs:", error);
+        console.error("Failed to fetch instance status:", error);
       }
     }, 1000);
 
@@ -104,6 +121,34 @@ export function InstanceDetailsView() {
     }
   };
 
+  const launchGame = async (mode: "normal" | "offline" | "demo" = "normal") => {
+    if (!id) return;
+    setLaunching(true);
+    try {
+      await invoke("launch_instance", { 
+        instanceId: id,
+        launchMode: mode
+      });
+      setIsRunning(true);
+    } catch (error) {
+      console.error("Failed to launch game:", error);
+      alert("Failed to launch game: " + error);
+    } finally {
+      setLaunching(false);
+    }
+  };
+
+  const killGame = async () => {
+    if (!id) return;
+    try {
+      await invoke("kill_instance", { instanceId: id });
+      setIsRunning(false);
+    } catch (error) {
+      console.error("Failed to kill game:", error);
+      alert("Failed to stop game: " + error);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -116,7 +161,7 @@ export function InstanceDetailsView() {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4">
         <p className="text-muted-foreground">Instance not found</p>
-        <Button variant="outline" onClick={() => navigate("/instances")}>
+        <Button variant="outline" onClick={() => navigate("/")}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Instances
         </Button>
@@ -128,7 +173,7 @@ export function InstanceDetailsView() {
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center gap-4 p-4 border-b">
-        <Button variant="ghost" size="icon" onClick={() => navigate("/instances")}>
+        <Button variant="ghost" size="icon" onClick={() => navigate("/")}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div className="flex-1">
@@ -142,6 +187,52 @@ export function InstanceDetailsView() {
               </span>
             )}
           </div>
+        </div>
+        
+        {/* Action buttons */}
+        <div className="flex items-center gap-2">
+          {isRunning ? (
+            <Button variant="destructive" onClick={killGame}>
+              <Square className="h-4 w-4 mr-2" />
+              Kill
+            </Button>
+          ) : (
+            <div className="flex">
+              <Button 
+                className="rounded-r-none" 
+                onClick={() => launchGame("normal")}
+                disabled={launching}
+              >
+                <Play className="h-4 w-4 mr-2" />
+                {launching ? "Launching..." : "Launch"}
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button 
+                    className="rounded-l-none border-l border-primary-foreground/20 px-2"
+                    disabled={launching}
+                  >
+                    <ChevronDown className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => launchGame("normal")}>
+                    <Play className="h-4 w-4 mr-2" />
+                    Launch
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => launchGame("offline")}>
+                    Launch Offline
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => launchGame("demo")}>
+                    Launch Demo Mode
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          )}
+          <Button variant="ghost" size="icon" onClick={() => navigate("/")}>
+            <X className="h-5 w-5" />
+          </Button>
         </div>
       </div>
 
@@ -171,15 +262,20 @@ export function InstanceDetailsView() {
           {/* Log Tab */}
           <TabsContent value="log" className="h-full m-0">
             <LogTab
-              instanceId={id}
               logContent={logContent}
               setLogContent={setLogContent}
+              searchTerm={searchTerm}
+              setSearchTerm={setSearchTerm}
+              autoScroll={autoScroll}
+              setAutoScroll={setAutoScroll}
+              wrapLines={wrapLines}
+              setWrapLines={setWrapLines}
             />
           </TabsContent>
 
           {/* Version Tab */}
           <TabsContent value="version" className="h-full m-0">
-            <VersionTab />
+            <VersionTab instanceId={id!} />
           </TabsContent>
 
           {/* Mods Tab */}

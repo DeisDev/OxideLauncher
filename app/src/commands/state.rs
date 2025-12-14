@@ -1,6 +1,10 @@
 //! Application state management
 
-use crate::core::{accounts::Account, config::Config, instance::Instance};
+use crate::core::{
+    accounts::{Account, AccountList},
+    config::Config,
+    instance::{Instance, InstanceList},
+};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Child;
@@ -8,7 +12,8 @@ use std::sync::{Arc, Mutex};
 
 /// Running Minecraft process information
 pub struct RunningProcess {
-    pub child: Child,
+    /// The child process - wrapped in Arc<Mutex<>> since we got it from the launch task
+    pub child: Arc<Mutex<Child>>,
     pub logs: Arc<Mutex<Vec<String>>>,
 }
 
@@ -23,17 +28,50 @@ pub struct AppState {
 
 impl AppState {
     pub fn new() -> Self {
-        let data_dir = dirs::data_dir()
-            .expect("Failed to get data directory")
-            .join("OxideLauncher");
+        // Load configuration from disk (or create default)
+        let config = Config::load().unwrap_or_else(|e| {
+            tracing::warn!("Failed to load config, using defaults: {}", e);
+            Config::default()
+        });
+        
+        // Get data directory from config
+        let data_dir = config.data_dir();
         
         // Ensure data directory exists
-        std::fs::create_dir_all(&data_dir).expect("Failed to create data directory");
+        if let Err(e) = std::fs::create_dir_all(&data_dir) {
+            tracing::error!("Failed to create data directory: {}", e);
+        }
+        
+        // Load instances from disk
+        let instances_dir = config.instances_dir();
+        let instances = match InstanceList::load(&instances_dir) {
+            Ok(list) => {
+                tracing::info!("Loaded {} instances from {:?}", list.instances.len(), instances_dir);
+                list.instances
+            }
+            Err(e) => {
+                tracing::warn!("Failed to load instances: {}", e);
+                Vec::new()
+            }
+        };
+        
+        // Load accounts from disk
+        let accounts_file = config.accounts_file();
+        let accounts = match AccountList::load(&accounts_file) {
+            Ok(list) => {
+                tracing::info!("Loaded {} accounts from {:?}", list.accounts.len(), accounts_file);
+                list.accounts
+            }
+            Err(e) => {
+                tracing::warn!("Failed to load accounts: {}", e);
+                Vec::new()
+            }
+        };
         
         Self {
-            instances: Mutex::new(Vec::new()),
-            accounts: Mutex::new(Vec::new()),
-            config: Mutex::new(Config::default()),
+            instances: Mutex::new(instances),
+            accounts: Mutex::new(accounts),
+            config: Mutex::new(config),
             data_dir,
             running_processes: Mutex::new(HashMap::new()),
         }

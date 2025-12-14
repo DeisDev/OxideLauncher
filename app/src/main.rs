@@ -12,6 +12,7 @@ mod core;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 use std::sync::Arc;
 use parking_lot::RwLock;
+use chrono::Local;
 
 /// Global logging state to allow runtime reconfiguration
 static LOGGING_STATE: once_cell::sync::Lazy<Arc<RwLock<LoggingState>>> = 
@@ -39,13 +40,21 @@ fn initialize_logging() {
     let console_layer = tracing_subscriber::fmt::layer()
         .with_filter(env_filter.clone());
     
-    // File logging layer (conditional)
+    // File logging layer (conditional) - creates a new file per session
     if config.logging.debug_to_file {
         let logs_dir = config.logs_dir();
         std::fs::create_dir_all(&logs_dir).ok();
         
-        let file_appender = tracing_appender::rolling::daily(logs_dir, "oxide-launcher.log");
-        let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+        // Create session-based log filename with timestamp
+        let timestamp = Local::now().format("%Y-%m-%d_%H-%M-%S");
+        let log_filename = format!("oxide-launcher_{}.log", timestamp);
+        let log_path = logs_dir.join(&log_filename);
+        
+        // Create the log file
+        let log_file = std::fs::File::create(&log_path)
+            .expect("Failed to create log file");
+        
+        let (non_blocking, _guard) = tracing_appender::non_blocking(log_file);
         
         // Store guard so it doesn't drop (would stop logging)
         std::mem::forget(_guard);
@@ -61,11 +70,43 @@ fn initialize_logging() {
             .init();
         
         LOGGING_STATE.write().file_logging_enabled = true;
-        tracing::info!("Debug file logging enabled at: {:?}", config.logs_dir());
+        
+        // Clean up old log files (keep last 10 sessions)
+        cleanup_old_logs(&logs_dir, 10);
+        
+        tracing::info!("Session log file created: {:?}", log_path);
     } else {
         tracing_subscriber::registry()
             .with(console_layer)
             .init();
+    }
+}
+
+/// Clean up old log files, keeping only the most recent `keep_count` files
+fn cleanup_old_logs(logs_dir: &std::path::Path, keep_count: usize) {
+    if let Ok(entries) = std::fs::read_dir(logs_dir) {
+        let mut log_files: Vec<_> = entries
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.path()
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.starts_with("oxide-launcher_") && n.ends_with(".log"))
+                    .unwrap_or(false)
+            })
+            .collect();
+        
+        // Sort by modified time (newest first)
+        log_files.sort_by(|a, b| {
+            let a_time = a.metadata().and_then(|m| m.modified()).ok();
+            let b_time = b.metadata().and_then(|m| m.modified()).ok();
+            b_time.cmp(&a_time)
+        });
+        
+        // Delete files beyond the keep count
+        for file in log_files.into_iter().skip(keep_count) {
+            let _ = std::fs::remove_file(file.path());
+        }
     }
 }
 
@@ -77,6 +118,7 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(commands::AppState::new())
         .invoke_handler(tauri::generate_handler![
             // Instance commands
@@ -86,6 +128,7 @@ fn main() {
             commands::instances::delete_instance,
             commands::instances::launch_instance,
             commands::instances::get_instance_logs,
+            commands::instances::is_instance_running,
             commands::instances::rename_instance,
             commands::instances::change_instance_icon,
             commands::instances::copy_instance,
@@ -94,6 +137,29 @@ fn main() {
             commands::instances::export_instance,
             commands::instances::kill_instance,
             commands::instances::update_instance_settings,
+            // Component management commands
+            commands::instances::get_instance_components,
+            commands::instances::remove_instance_component,
+            commands::instances::change_component_version,
+            commands::instances::install_mod_loader,
+            commands::instances::open_minecraft_folder,
+            commands::instances::open_libraries_folder,
+            // Jar mods and agents
+            commands::instances::add_jar_mod,
+            commands::instances::get_jar_mods,
+            commands::instances::remove_jar_mod,
+            commands::instances::add_java_agent,
+            commands::instances::get_java_agents,
+            commands::instances::remove_java_agent,
+            commands::instances::replace_minecraft_jar,
+            commands::instances::revert_minecraft_jar,
+            commands::instances::has_custom_minecraft_jar,
+            // Component ordering and customization
+            commands::instances::move_component_up,
+            commands::instances::move_component_down,
+            commands::instances::add_empty_component,
+            commands::instances::customize_component,
+            commands::instances::revert_component,
             // Account commands
             commands::accounts::get_accounts,
             commands::accounts::add_offline_account,
@@ -129,6 +195,12 @@ fn main() {
             commands::mods::open_mods_folder,
             commands::mods::open_configs_folder,
             commands::mods::add_local_mod,
+            commands::mods::add_local_mod_from_bytes,
+            // Enhanced mod commands for new download dialog
+            commands::mods::search_mods_detailed,
+            commands::mods::get_mod_details,
+            commands::mods::get_mod_versions,
+            commands::mods::download_mod_version,
             // Java commands
             commands::java::detect_java,
             commands::java::find_java_for_minecraft,
@@ -144,12 +216,15 @@ fn main() {
             commands::worlds::export_world,
             commands::worlds::copy_world,
             commands::worlds::get_world_icon,
+            commands::worlds::open_saves_folder,
             // Resource pack commands
             commands::resources::list_resource_packs,
             commands::resources::delete_resource_pack,
+            commands::resources::open_resourcepacks_folder,
             // Shader pack commands
             commands::resources::list_shader_packs,
             commands::resources::delete_shader_pack,
+            commands::resources::open_shaderpacks_folder,
             // Screenshot commands
             commands::screenshots::list_screenshots,
             commands::screenshots::delete_screenshot,

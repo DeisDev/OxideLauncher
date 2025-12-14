@@ -77,8 +77,6 @@
 #root {
   width: 100vw;
   height: 100vh;
-  display: flex;
-  flex-direction: column;
 }
 
 /* Scrollbar Styling */
@@ -121,4 +119,47 @@
   text-align: center;
   padding: 48px;
   color: hsl(var(--muted-foreground));
+}
+
+/* Page transition animations to prevent flickering */
+.page-transition {
+  animation: fadeIn 0.15s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Prevent layout shift during loading */
+.view-container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Skeleton loading animation */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--muted)) 25%,
+    hsl(var(--muted-foreground) / 0.1) 50%,
+    hsl(var(--muted)) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: var(--radius);
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
 }

@@ -194,3 +194,99 @@ pub async fn delete_shader_pack(
     
     Ok(())
 }
+
+/// Open resource packs folder
+#[tauri::command]
+pub async fn open_resourcepacks_folder(
+    state: State<'_, AppState>,
+    instance_id: String,
+) -> Result<(), String> {
+    let instance = {
+        let instances = state.instances.lock().unwrap();
+        instances.iter()
+            .find(|i| i.id == instance_id)
+            .ok_or_else(|| "Instance not found".to_string())?
+            .clone()
+    };
+    
+    let resourcepacks_dir = instance.game_dir().join("resourcepacks");
+    
+    // Create if doesn't exist
+    if !resourcepacks_dir.exists() {
+        std::fs::create_dir_all(&resourcepacks_dir).map_err(|e| e.to_string())?;
+    }
+    
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(&resourcepacks_dir)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&resourcepacks_dir)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&resourcepacks_dir)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+    
+    Ok(())
+}
+
+/// Open shader packs folder
+#[tauri::command]
+pub async fn open_shaderpacks_folder(
+    state: State<'_, AppState>,
+    instance_id: String,
+) -> Result<(), String> {
+    let instance = {
+        let instances = state.instances.lock().unwrap();
+        instances.iter()
+            .find(|i| i.id == instance_id)
+            .ok_or_else(|| "Instance not found".to_string())?
+            .clone()
+    };
+    
+    let shaderpacks_dir = instance.game_dir().join("shaderpacks");
+    
+    // Create if doesn't exist
+    if !shaderpacks_dir.exists() {
+        std::fs::create_dir_all(&shaderpacks_dir).map_err(|e| e.to_string())?;
+    }
+    
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(&shaderpacks_dir)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&shaderpacks_dir)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&shaderpacks_dir)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+    
+    Ok(())
+}

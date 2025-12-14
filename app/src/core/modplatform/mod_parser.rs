@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::io::Read;
 use std::path::Path;
 use zip::ZipArchive;
+use base64::{Engine as _, engine::general_purpose};
 
 /// Parsed mod details from a JAR file
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -368,4 +369,116 @@ struct QuiltMetadata {
     contact: Option<ContactInfo>,
     license: Option<LicenseEntry>,
     icon: Option<String>,
+}
+
+/// Extract the icon from a mod JAR file as a base64 data URL
+pub fn extract_mod_icon(path: &Path) -> Option<String> {
+    let file = std::fs::File::open(path).ok()?;
+    let mut archive = ZipArchive::new(file).ok()?;
+    
+    // First, parse the mod details to find the icon path
+    let details = parse_mod_jar(path)?;
+    let icon_path = details.icon_path?;
+    
+    tracing::debug!("Looking for icon at path: '{}' in {:?}", icon_path, path);
+    
+    // Try multiple path variations to find the icon
+    let icon_data = try_read_icon_from_archive(&mut archive, &icon_path);
+    
+    let icon_data = match icon_data {
+        Some(data) => data,
+        None => {
+            tracing::debug!("Icon not found at any path variation for {:?}", path);
+            return None;
+        }
+    };
+    
+    // Determine the image type from the extension
+    let mime_type = if icon_path.to_lowercase().ends_with(".png") {
+        "image/png"
+    } else if icon_path.to_lowercase().ends_with(".jpg") || icon_path.to_lowercase().ends_with(".jpeg") {
+        "image/jpeg"
+    } else if icon_path.to_lowercase().ends_with(".gif") {
+        "image/gif"
+    } else if icon_path.to_lowercase().ends_with(".webp") {
+        "image/webp"
+    } else {
+        "image/png" // Default to PNG
+    };
+    
+    // Encode as base64 data URL
+    let base64_data = general_purpose::STANDARD.encode(&icon_data);
+    Some(format!("data:{};base64,{}", mime_type, base64_data))
+}
+
+/// Try to read an icon from a ZIP archive using multiple path variations
+fn try_read_icon_from_archive<R: Read + std::io::Seek>(
+    archive: &mut ZipArchive<R>,
+    icon_path: &str,
+) -> Option<Vec<u8>> {
+    // Path variations to try
+    let path_variations = [
+        icon_path.to_string(),
+        icon_path.trim_start_matches('/').to_string(),
+        icon_path.trim_start_matches("./").to_string(),
+        format!("/{}", icon_path.trim_start_matches('/')),
+    ];
+    
+    // Try exact matches first
+    for path in &path_variations {
+        if let Ok(mut file) = archive.by_name(path) {
+            let mut data = Vec::new();
+            if file.read_to_end(&mut data).is_ok() && !data.is_empty() {
+                tracing::debug!("Found icon at exact path: '{}'", path);
+                return Some(data);
+            }
+        }
+    }
+    
+    // Try case-insensitive search by collecting matching indices first
+    let lower_icon = icon_path.to_lowercase();
+    let lower_icon_trimmed = lower_icon.trim_start_matches('/').trim_start_matches("./");
+    
+    let matching_index = (0..archive.len()).find(|&i| {
+        if let Ok(file) = archive.by_index(i) {
+            let file_name_lower = file.name().to_lowercase();
+            file_name_lower == lower_icon 
+                || file_name_lower == lower_icon_trimmed
+                || file_name_lower.trim_start_matches('/') == lower_icon_trimmed
+        } else {
+            false
+        }
+    });
+    
+    if let Some(idx) = matching_index {
+        if let Ok(mut file) = archive.by_index(idx) {
+            let file_name = file.name().to_string();
+            let mut data = Vec::new();
+            if file.read_to_end(&mut data).is_ok() && !data.is_empty() {
+                tracing::debug!("Found icon via case-insensitive search at: '{}'", file_name);
+                return Some(data);
+            }
+        }
+    }
+    
+    // Try common fallback icon paths
+    let fallback_paths = [
+        "icon.png",
+        "pack.png", 
+        "logo.png",
+        "assets/icon.png",
+        "META-INF/icon.png",
+    ];
+    
+    for fallback in &fallback_paths {
+        if let Ok(mut file) = archive.by_name(fallback) {
+            let mut data = Vec::new();
+            if file.read_to_end(&mut data).is_ok() && !data.is_empty() {
+                tracing::debug!("Found icon at fallback path: '{}'", fallback);
+                return Some(data);
+            }
+        }
+    }
+    
+    None
 }

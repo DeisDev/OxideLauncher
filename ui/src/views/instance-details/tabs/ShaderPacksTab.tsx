@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Trash2, RefreshCw, Package } from "lucide-react";
+import { Trash2, RefreshCw, Package, FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -61,6 +61,15 @@ export function ShaderPacksTab({ instanceId }: ShaderPacksTabProps) {
     setDeleteDialog(null);
   };
 
+  const openFolder = async () => {
+    try {
+      await invoke("open_shaderpacks_folder", { instanceId });
+    } catch (error) {
+      console.error("Failed to open folder:", error);
+      alert("Failed to open folder: " + error);
+    }
+  };
+
   return (
     <Card className="h-full">
       <CardHeader className="pb-3">
@@ -69,10 +78,16 @@ export function ShaderPacksTab({ instanceId }: ShaderPacksTabProps) {
             <CardTitle>Shader Packs</CardTitle>
             <CardDescription>Manage shader packs for this instance</CardDescription>
           </div>
-          <Button variant="outline" size="sm" onClick={loadShaderPacks} disabled={loading}>
-            <RefreshCw className={cn("h-4 w-4 mr-2", loading && "animate-spin")} />
-            Refresh
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={openFolder}>
+              <FolderOpen className="h-4 w-4 mr-2" />
+              Open Folder
+            </Button>
+            <Button variant="outline" size="sm" onClick={loadShaderPacks} disabled={loading}>
+              <RefreshCw className={cn("h-4 w-4 mr-2", loading && "animate-spin")} />
+              Refresh
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent>

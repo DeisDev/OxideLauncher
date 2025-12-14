@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_1" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 550.83 239.2">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: none;
+        stroke: #fff;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 7px;
+      }
+
+      .cls-2 {
+        letter-spacing: -.02em;
+      }
+
+      .cls-3 {
+        fill: #b74426;
+      }
+
+      .cls-4 {
+        letter-spacing: 0em;
+      }
+
+      .cls-5 {
+        letter-spacing: 0em;
+      }
+
+      .cls-6 {
+        fill: #fff;
+        font-family: BebasNeue-Regular, 'Bebas Neue';
+        font-size: 63.69px;
+      }
+    </style>
+  </defs>
+  <g>
+    <rect class="cls-3" width="550.83" height="239.2" rx="22.22" ry="22.22"/>
+    <g>
+      <circle class="cls-1" cx="119.6" cy="119.6" r="82.69"/>
+      <path class="cls-1" d="M138.7,86.52l47.47,82.19"/>
+      <path class="cls-1" d="M100.5,86.52h94.93"/>
+      <path class="cls-1" d="M81.4,119.6l47.47-82.19"/>
+      <path class="cls-1" d="M100.5,152.68l-47.47-82.19"/>
+      <path class="cls-1" d="M138.7,152.68H43.77"/>
+      <path class="cls-1" d="M157.8,119.6l-47.47,82.19"/>
+    </g>
+  </g>
+  <text class="cls-6" transform="translate(298.04 102.09)"><tspan class="cls-2" x="0" y="0">O</tspan><tspan x="24.46" y="0">xide </tspan><tspan class="cls-4" x="-39.29" y="76.42">L</tspan><tspan class="cls-5" x="-17.13" y="76.42">a</tspan><tspan x="8.28" y="76.42">uncher</tspan></text>
+</svg>

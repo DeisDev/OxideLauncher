@@ -13,6 +13,7 @@ categories = ["games"]
 # Tauri Framework
 tauri = { version = "2.1", features = [] }
 tauri-plugin-shell = "2.1"
+tauri-plugin-dialog = "2"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

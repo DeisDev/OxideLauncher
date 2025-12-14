@@ -39,6 +39,9 @@ pub enum OxideError {
     #[error("Mod platform error: {0}")]
     ModPlatform(String),
 
+    #[error("Modloader error: {0}")]
+    Modloader(String),
+
     #[error("Zip error: {0}")]
     Zip(#[from] zip::result::ZipError),
 
