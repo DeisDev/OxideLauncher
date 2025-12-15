@@ -1,10 +1,11 @@
 
 
+
 <div align="center">
      <img src="https://raw.githubusercontent.com/DeisDev/OxideLauncher/main/ui/art/oxidebannershort.svg" alt="Oxide Banner" width="320" />
-
-     <!-- Shields -->
-     <p>
+     <br />
+     <br />
+     <p align="center">
           <a href="https://github.com/DeisDev/OxideLauncher/blob/main/LICENSE">
                <img src="https://img.shields.io/github/license/DeisDev/OxideLauncher?style=flat-square" alt="License" />
           </a>
@@ -16,6 +17,12 @@
           </a>
           <a href="https://github.com/DeisDev/OxideLauncher/releases">
                <img src="https://img.shields.io/github/v/release/DeisDev/OxideLauncher?style=flat-square" alt="Latest Release" />
+          </a>
+          <a href="https://github.com/DeisDev/OxideLauncher/stargazers">
+               <img src="https://img.shields.io/github/stars/DeisDev/OxideLauncher?style=flat-square" alt="GitHub stars" />
+          </a>
+          <a href="https://github.com/DeisDev/OxideLauncher/commits/main">
+               <img src="https://img.shields.io/github/last-commit/DeisDev/OxideLauncher/main?style=flat-square" alt="Last commit" />
           </a>
      </p>
 </div>
