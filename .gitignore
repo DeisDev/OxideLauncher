@@ -6,12 +6,24 @@
 /target
 /app/target
 Cargo.lock
+*.rs.bk
+
+# Tauri generated files
+/app/gen/
+/app/gen/schemas
+/app/capabilities
 
 # Node.js dependencies
 node_modules
 /ui/node_modules
 /ui/dist
+
+# Lock files
+package-lock.json
+/ui/package-lock.json
+/ui/bun.lock
 /ui/bun.lockb
+bun.lockb
 
 # App icons (generated)
 /app/icons/ios
@@ -24,23 +36,13 @@ node_modules
 *.swp
 *.swo
 *~
-.DS_Store
-
-# Environment files
-.env
-.env.local
-.env.*.local
-
-# Log files
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 
 # OS files
+**/.DS_Store
 Thumbs.db
-.DS_Store
 Desktop.ini
+.Spotlight-V100
+.Trashes
 
 # Temporary files
 *.tmp
