@@ -285,10 +285,29 @@ impl LaunchGameStep {
         let instance = &context.instance;
         let game_dir = instance.game_dir();
         
+        // For offline accounts, provide placeholder values instead of empty strings
+        // This prevents argument parsing issues where --argName followed by empty value
+        // causes the next argument to be interpreted as the value
+        let access_token = if context.auth_session.access_token.is_empty() { 
+            "0".to_string() 
+        } else { 
+            context.auth_session.access_token.clone() 
+        };
+        let client_id = if context.auth_session.client_id.is_empty() { 
+            "0".to_string() 
+        } else { 
+            context.auth_session.client_id.clone() 
+        };
+        let xuid = if context.auth_session.xuid.is_empty() { 
+            "0".to_string() 
+        } else { 
+            context.auth_session.xuid.clone() 
+        };
+        
         template
             .replace("${auth_player_name}", &context.auth_session.username)
             .replace("${auth_uuid}", &context.auth_session.uuid)
-            .replace("${auth_access_token}", &context.auth_session.access_token)
+            .replace("${auth_access_token}", &access_token)
             .replace("${user_type}", &context.auth_session.user_type)
             .replace("${version_name}", &instance.minecraft_version)
             .replace("${game_directory}", &game_dir.to_string_lossy())
@@ -297,9 +316,8 @@ impl LaunchGameStep {
             .replace("${version_type}", &format!("{:?}", version_data.version_type))
             .replace("${user_properties}", "{}")
             // Microsoft/Xbox authentication variables (required for 1.16.4+)
-            // For offline accounts, these can be empty or placeholder values
-            .replace("${clientid}", &context.auth_session.client_id)
-            .replace("${auth_xuid}", &context.auth_session.xuid)
+            .replace("${clientid}", &client_id)
+            .replace("${auth_xuid}", &xuid)
     }
 }
 
@@ -410,6 +428,27 @@ impl LaunchStep for LaunchGameStep {
             (java_path.to_string_lossy().to_string(), args)
         };
         
+        // On Windows, prefer javaw.exe over java.exe to avoid console window
+        #[cfg(target_os = "windows")]
+        let program = {
+            let program_path = std::path::Path::new(&program);
+            if program_path.file_name().map(|f| f.to_string_lossy().to_lowercase()) == Some("java.exe".into()) {
+                // Try to use javaw.exe instead
+                let javaw_path = program_path.with_file_name("javaw.exe");
+                if javaw_path.exists() {
+                    info!("Using javaw.exe instead of java.exe to avoid console window");
+                    javaw_path.to_string_lossy().to_string()
+                } else {
+                    program
+                }
+            } else {
+                program
+            }
+        };
+        
+        #[cfg(not(target_os = "windows"))]
+        let program = program;
+        
         // Log launch command (debug)
         debug!("Launch command: {} {}", program, final_args.join(" "));
         
@@ -425,16 +464,17 @@ impl LaunchStep for LaunchGameStep {
         command
             .args(&final_args)
             .current_dir(&game_dir)
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         
-        // On Windows, prevent the console window from appearing
+        // On Windows, use CREATE_NO_WINDOW to prevent console window.
+        // Note: This works with javaw.exe. If using java.exe, a console may still appear.
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
             const CREATE_NO_WINDOW: u32 = 0x08000000;
-            const DETACHED_PROCESS: u32 = 0x00000008;
-            command.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
+            command.creation_flags(CREATE_NO_WINDOW);
         }
         
         let child = match command.spawn() {

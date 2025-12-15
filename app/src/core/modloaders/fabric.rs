@@ -172,6 +172,22 @@ impl ModloaderInstaller for FabricInstaller {
         profile.main_class = fabric_profile.launcher_meta.main_class.client().to_string();
         debug!("Profile main class set to: {}", profile.main_class);
 
+        // Add the fabric-loader itself (this is critical and not included in the libraries list!)
+        let loader_maven = format!("net.fabricmc:fabric-loader:{}", loader_version);
+        let loader_path = super::profile::maven_to_path(&loader_maven);
+        debug!("Adding fabric-loader library: {} -> {}", loader_maven, loader_path);
+        
+        let fabric_loader = ModloaderLibrary {
+            name: loader_maven,
+            url: Some(format!("https://maven.fabricmc.net/{}", loader_path)),
+            sha1: None,
+            size: None,
+            path: None,
+            natives: None,
+            rules: Vec::new(),
+        };
+        profile.libraries.push(fabric_loader);
+
         // Add intermediary library (mappings)
         let intermediary_path = super::profile::maven_to_path(&fabric_profile.intermediary.maven);
         debug!("Adding intermediary library: {} -> {}", fabric_profile.intermediary.maven, intermediary_path);

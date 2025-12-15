@@ -19,6 +19,11 @@ import {
   AlertTriangle,
   XCircle,
   CheckCircle,
+  Gamepad2,
+  Cog,
+  Map,
+  Package,
+  HelpCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -551,21 +556,22 @@ export function VersionTab({ instanceId }: VersionTabProps) {
   };
 
   const getComponentIcon = (componentType: string) => {
+    const iconClass = "h-4 w-4";
     switch (componentType) {
       case "minecraft":
-        return "🎮";
+        return <Gamepad2 className={iconClass} />;
       case "mod_loader":
-        return "⚙️";
+        return <Cog className={iconClass} />;
       case "mappings":
-        return "🗺️";
+        return <Map className={iconClass} />;
       case "library":
-        return "📚";
+        return <Library className={iconClass} />;
       case "agent":
-        return "🤖";
+        return <Bot className={iconClass} />;
       case "jar_mod":
-        return "📦";
+        return <Package className={iconClass} />;
       default:
-        return "❓";
+        return <HelpCircle className={iconClass} />;
     }
   };
 
@@ -598,9 +604,9 @@ export function VersionTab({ instanceId }: VersionTabProps) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 h-full overflow-hidden">
       {/* Main content area */}
-      <div className="flex gap-4 h-[calc(100vh-300px)]">
+      <div className="flex gap-4 h-full min-h-0">
         {/* Component list */}
         <Card className="flex-1">
           <CardHeader className="pb-2">
@@ -630,7 +636,7 @@ export function VersionTab({ instanceId }: VersionTabProps) {
                       )}
                       onClick={() => setSelectedComponent(component)}
                     >
-                      <TableCell className="font-mono text-lg">
+                      <TableCell className="text-muted-foreground">
                         {getComponentIcon(component.component_type)}
                       </TableCell>
                       <TableCell>
@@ -662,12 +668,13 @@ export function VersionTab({ instanceId }: VersionTabProps) {
         </Card>
 
         {/* Actions sidebar */}
-        <Card className="w-64 flex flex-col">
-          <CardHeader className="pb-2">
+        <Card className="w-56 flex-shrink-0 flex flex-col overflow-hidden">
+          <CardHeader className="pb-2 flex-shrink-0">
             <CardTitle className="text-lg">Actions</CardTitle>
           </CardHeader>
-          <CardContent className="flex-1">
-            <div className="space-y-2">
+          <CardContent className="flex-1 overflow-auto p-0">
+            <ScrollArea className="h-full p-4">
+              <div className="space-y-2">
               {/* Component actions */}
               <TooltipProvider>
                 <div className="space-y-1">
@@ -934,7 +941,8 @@ export function VersionTab({ instanceId }: VersionTabProps) {
                   </Tooltip>
                 </div>
               </TooltipProvider>
-            </div>
+              </div>
+            </ScrollArea>
           </CardContent>
         </Card>
       </div>

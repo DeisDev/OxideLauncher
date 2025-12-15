@@ -190,8 +190,18 @@ pub fn run_processor(
     debug!("Running processor: {:?} {:?}", java_path, args);
     
     // Run the processor
-    let output = Command::new(java_path)
-        .args(&args)
+    let mut command = Command::new(java_path);
+    command.args(&args);
+    
+    // On Windows, hide the console window
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    
+    let output = command
         .output()
         .map_err(|e| OxideError::Modloader(format!("Failed to run processor: {}", e)))?;
     

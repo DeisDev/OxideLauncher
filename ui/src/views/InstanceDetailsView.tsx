@@ -285,12 +285,12 @@ export function InstanceDetailsView() {
 
           {/* Resource Packs Tab */}
           <TabsContent value="resourcepacks" className="h-full m-0">
-            <ResourcePacksTab instanceId={id} />
+            <ResourcePacksTab instanceId={id} instance={instance} />
           </TabsContent>
 
           {/* Shader Packs Tab */}
           <TabsContent value="shaderpacks" className="h-full m-0">
-            <ShaderPacksTab instanceId={id} />
+            <ShaderPacksTab instanceId={id} instance={instance} />
           </TabsContent>
 
           {/* Notes Tab */}
