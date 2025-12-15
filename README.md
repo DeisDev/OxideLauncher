@@ -1,39 +1,73 @@
-<p align="center">
-<img src="https://raw.githubusercontent.com/DeisDev/OxideLauncher/main/ui/art/oxidebannershort.svg"
-     alt="Oxide Banner" width="300" /> <br />
-<br />
-Oxide Launcher is a custom launcher for Minecraft built with rust and tauri.<br />
-It allows you to easily manage and install mods for multiple different installations of the game.<br />
-<br />This launcher is heavily inspired by Prism Launcher but we are <b>Neither</b> endorsed by or a fork of it. 
+
+
+<div align="center">
+     <img src="https://raw.githubusercontent.com/DeisDev/OxideLauncher/main/ui/art/oxidebannershort.svg" alt="Oxide Banner" width="320" />
+
+     <!-- Shields -->
+     <p>
+          <a href="https://github.com/DeisDev/OxideLauncher/blob/main/LICENSE">
+               <img src="https://img.shields.io/github/license/DeisDev/OxideLauncher?style=flat-square" alt="License" />
+          </a>
+          <a href="https://github.com/DeisDev/OxideLauncher/actions">
+               <img src="https://img.shields.io/github/actions/workflow/status/DeisDev/OxideLauncher/ci.yml?branch=main&style=flat-square" alt="Build Status" />
+          </a>
+          <a href="https://github.com/DeisDev/OxideLauncher/issues">
+               <img src="https://img.shields.io/github/issues/DeisDev/OxideLauncher?style=flat-square" alt="Open Issues" />
+          </a>
+          <a href="https://github.com/DeisDev/OxideLauncher/releases">
+               <img src="https://img.shields.io/github/v/release/DeisDev/OxideLauncher?style=flat-square" alt="Latest Release" />
+          </a>
+     </p>
+</div>
+
+
+# Oxide Launcher
+
+A modern, Rust + Tauri-powered Minecraft launcher.
+
+Easily manage and install mods for multiple Minecraft installations. Inspired by Prism Launcher, but not affiliated or forked from it.
+
+
+
+---
 
 ## Installation
 
-All of our latest builds can be found in the releases tab.
+Find the latest builds in the [Releases](https://github.com/DeisDev/OxideLauncher/releases) tab.
 
->[!NOTE]
->We do not <b>currently</b> have a website, but as we get further into development we expect to eventually launch one with downloads and instructions hosted there. 
+*Website coming soon.*
 
-## Building from source
 
-### Windows
 
+## Build from Source
+
+**Windows:**
+
+```sh
 cd "E:\Projects\OxideLauncher\app"
 cargo tauri build --no-bundle
+```
 
-### Linux
+**Linux:**
 
+
+```sh
 cd "$HOME/Projects/OxideLauncher/app"
 cargo tauri build --no-bundle
+```
 
-<br />
+> **Note:**
+> - Development is focused on Windows. Linux support is experimental.
+> - **macOS support is on the table, but not a current focus.**
 
->[!WARNING] 
->Development is actively happening on a windows machine. Linux support is untested and experimental. 
+
 
 ## Community
 
-We are working on creating a community discord server and a subreddit soon, but it is rather low on our list of priorities. Feel free to make one yourself. 
+Community channels (Discord, subreddit) coming soon. Feel free to start your own.
 
-## License 
 
-All launcher-related code in this repository is licensed under the GPL-3.0-only license.
+
+## License
+
+Launcher code is licensed under **GPL-3.0-only**.
