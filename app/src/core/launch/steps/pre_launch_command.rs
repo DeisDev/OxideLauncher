@@ -55,11 +55,18 @@ impl LaunchStep for PreLaunchCommandStep {
     }
     
     async fn execute(&mut self, context: &mut LaunchContext) -> LaunchStepResult {
+        // Use instance-specific command if set, otherwise fall back to global config
         let command = match &context.instance.settings.pre_launch_command {
             Some(cmd) if !cmd.trim().is_empty() => cmd.clone(),
             _ => {
-                debug!("No pre-launch command configured");
-                return LaunchStepResult::Success;
+                // Check global config
+                match &context.config.commands.pre_launch {
+                    Some(cmd) if !cmd.trim().is_empty() => cmd.clone(),
+                    _ => {
+                        debug!("No pre-launch command configured");
+                        return LaunchStepResult::Success;
+                    }
+                }
             }
         };
         

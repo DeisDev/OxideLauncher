@@ -52,11 +52,18 @@ impl LaunchStep for PostLaunchCommandStep {
     }
     
     async fn execute(&mut self, context: &mut LaunchContext) -> LaunchStepResult {
+        // Use instance-specific command if set, otherwise fall back to global config
         let command = match &context.instance.settings.post_exit_command {
             Some(cmd) if !cmd.trim().is_empty() => cmd.clone(),
             _ => {
-                debug!("No post-exit command configured");
-                return LaunchStepResult::Success;
+                // Check global config
+                match &context.config.commands.post_exit {
+                    Some(cmd) if !cmd.trim().is_empty() => cmd.clone(),
+                    _ => {
+                        debug!("No post-exit command configured");
+                        return LaunchStepResult::Success;
+                    }
+                }
             }
         };
         

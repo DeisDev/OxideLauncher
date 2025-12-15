@@ -15,7 +15,7 @@ pub struct Config {
     #[serde(default)]
     pub instances_dir: Option<PathBuf>,
 
-    /// Theme name
+    /// Theme name (dark, light, system)
     #[serde(default = "default_theme")]
     pub theme: String,
 
@@ -30,6 +30,14 @@ pub struct Config {
     /// UI settings
     #[serde(default)]
     pub ui: UiConfig,
+
+    /// Minecraft game settings
+    #[serde(default)]
+    pub minecraft: MinecraftConfig,
+
+    /// Custom commands
+    #[serde(default)]
+    pub commands: CustomCommands,
 
     /// Launcher-wide memory settings
     #[serde(default)]
@@ -53,6 +61,8 @@ impl Default for Config {
             java: JavaConfig::default(),
             network: NetworkConfig::default(),
             ui: UiConfig::default(),
+            minecraft: MinecraftConfig::default(),
+            commands: CustomCommands::default(),
             memory: MemoryConfig::default(),
             logging: LoggingConfig::default(),
             api_keys: ApiKeys::default(),
@@ -203,11 +213,15 @@ pub struct NetworkConfig {
     #[serde(default)]
     pub proxy: Option<ProxyConfig>,
 
-    /// Maximum concurrent downloads
+    /// Maximum concurrent downloads (1-50)
     #[serde(default = "default_max_downloads")]
     pub max_concurrent_downloads: usize,
 
-    /// Download timeout in seconds
+    /// Number of retry attempts for failed downloads (0-10)
+    #[serde(default = "default_download_retries")]
+    pub download_retries: u32,
+
+    /// Download timeout in seconds (5-300)
     #[serde(default = "default_timeout")]
     pub timeout_seconds: u64,
 
@@ -221,6 +235,7 @@ impl Default for NetworkConfig {
         Self {
             proxy: None,
             max_concurrent_downloads: default_max_downloads(),
+            download_retries: default_download_retries(),
             timeout_seconds: default_timeout(),
             user_agent: default_user_agent(),
         }
@@ -254,6 +269,22 @@ pub struct UiConfig {
     #[serde(default)]
     pub instance_view: InstanceViewMode,
 
+    /// Instance sort field
+    #[serde(default = "default_sort_by")]
+    pub instance_sort_by: String,
+
+    /// Instance sort direction (true = ascending)
+    #[serde(default = "default_true")]
+    pub instance_sort_asc: bool,
+
+    /// Instance grid size
+    #[serde(default = "default_grid_size")]
+    pub instance_grid_size: String,
+
+    /// Color scheme name
+    #[serde(default = "default_color_scheme")]
+    pub color_scheme: String,
+
     /// Window width
     #[serde(default = "default_window_width")]
     pub window_width: u32,
@@ -266,9 +297,9 @@ pub struct UiConfig {
     #[serde(default)]
     pub last_instance: Option<String>,
 
-    /// Cat mode (easter egg like Prism)
+    /// Rust mode - obnoxiously Rust-themed color scheme 🦀
     #[serde(default)]
-    pub cat_mode: bool,
+    pub rust_mode: bool,
 }
 
 impl Default for UiConfig {
@@ -276,10 +307,14 @@ impl Default for UiConfig {
         Self {
             show_news: true,
             instance_view: InstanceViewMode::default(),
+            instance_sort_by: default_sort_by(),
+            instance_sort_asc: true,
+            instance_grid_size: default_grid_size(),
+            color_scheme: default_color_scheme(),
             window_width: default_window_width(),
             window_height: default_window_height(),
             last_instance: None,
-            cat_mode: false,
+            rust_mode: false,
         }
     }
 }
@@ -315,6 +350,78 @@ impl Default for MemoryConfig {
             permgen: default_permgen(),
         }
     }
+}
+
+/// Minecraft game settings
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MinecraftConfig {
+    /// Game window width
+    #[serde(default = "default_game_width")]
+    pub window_width: u32,
+
+    /// Game window height
+    #[serde(default = "default_game_height")]
+    pub window_height: u32,
+
+    /// Launch game maximized
+    #[serde(default)]
+    pub launch_maximized: bool,
+
+    /// Close launcher after game starts
+    #[serde(default)]
+    pub close_after_launch: bool,
+
+    /// Show game console window
+    #[serde(default)]
+    pub show_console: bool,
+
+    /// Auto-close console when game exits normally
+    #[serde(default)]
+    pub auto_close_console: bool,
+
+    /// Show console window on crash/error
+    #[serde(default = "default_true")]
+    pub show_console_on_error: bool,
+
+    /// Record game time
+    #[serde(default = "default_true")]
+    pub record_game_time: bool,
+
+    /// Show game time in instance list
+    #[serde(default = "default_true")]
+    pub show_game_time: bool,
+}
+
+impl Default for MinecraftConfig {
+    fn default() -> Self {
+        Self {
+            window_width: default_game_width(),
+            window_height: default_game_height(),
+            launch_maximized: false,
+            close_after_launch: false,
+            show_console: false,
+            auto_close_console: false,
+            show_console_on_error: true,
+            record_game_time: true,
+            show_game_time: true,
+        }
+    }
+}
+
+/// Custom commands configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CustomCommands {
+    /// Command to run before launching the game
+    #[serde(default)]
+    pub pre_launch: Option<String>,
+
+    /// Command to run after the game exits
+    #[serde(default)]
+    pub post_exit: Option<String>,
+
+    /// Wrapper command (game command is appended)
+    #[serde(default)]
+    pub wrapper_command: Option<String>,
 }
 
 /// API keys configuration
@@ -372,7 +479,7 @@ fn config_file_path() -> PathBuf {
 }
 
 fn default_theme() -> String {
-    "dark".to_string()
+    "system".to_string()
 }
 
 fn default_true() -> bool {
@@ -417,4 +524,28 @@ fn default_log_files() -> u32 {
 
 fn default_permgen() -> u32 {
     256
+}
+
+fn default_download_retries() -> u32 {
+    2
+}
+
+fn default_sort_by() -> String {
+    "name".to_string()
+}
+
+fn default_grid_size() -> String {
+    "medium".to_string()
+}
+
+fn default_color_scheme() -> String {
+    "ocean".to_string()
+}
+
+fn default_game_width() -> u32 {
+    854
+}
+
+fn default_game_height() -> u32 {
+    480
 }

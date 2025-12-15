@@ -3,6 +3,7 @@
 #![allow(dead_code)] // Download types will be used as features are completed
 
 use std::path::PathBuf;
+use std::time::Duration;
 use tokio::sync::mpsc;
 use futures::StreamExt;
 use crate::core::error::{OxideError, Result};
@@ -14,20 +15,100 @@ pub enum DownloadProgress {
     Progress { url: String, downloaded: u64, total: Option<u64> },
     Completed { url: String },
     Failed { url: String, error: String },
+    Retrying { url: String, attempt: u32, max_retries: u32, error: String },
 }
 
-/// Download a file to a path
+/// Download options
+#[derive(Debug, Clone)]
+pub struct DownloadOptions {
+    pub timeout_seconds: u64,
+    pub retries: u32,
+}
+
+impl Default for DownloadOptions {
+    fn default() -> Self {
+        Self {
+            timeout_seconds: 30,
+            retries: 2,
+        }
+    }
+}
+
+/// Download a file to a path with retry support
 pub async fn download_file(
     url: &str,
     dest: &PathBuf,
     progress_tx: Option<mpsc::Sender<DownloadProgress>>,
+) -> Result<()> {
+    download_file_with_options(url, dest, progress_tx, DownloadOptions::default()).await
+}
+
+/// Download a file to a path with custom options and retry support
+pub async fn download_file_with_options(
+    url: &str,
+    dest: &PathBuf,
+    progress_tx: Option<mpsc::Sender<DownloadProgress>>,
+    options: DownloadOptions,
+) -> Result<()> {
+    let mut last_error = None;
+    
+    for attempt in 0..=options.retries {
+        match download_file_inner(url, dest, progress_tx.clone(), options.timeout_seconds).await {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                last_error = Some(e.to_string());
+                
+                if attempt < options.retries {
+                    // Notify about retry
+                    if let Some(tx) = &progress_tx {
+                        let _ = tx.send(DownloadProgress::Retrying {
+                            url: url.to_string(),
+                            attempt: attempt + 1,
+                            max_retries: options.retries,
+                            error: last_error.clone().unwrap_or_default(),
+                        }).await;
+                    }
+                    
+                    // Exponential backoff: 1s, 2s, 4s...
+                    let delay = Duration::from_secs(1 << attempt);
+                    tokio::time::sleep(delay).await;
+                }
+            }
+        }
+    }
+    
+    // All retries exhausted
+    if let Some(tx) = &progress_tx {
+        let _ = tx.send(DownloadProgress::Failed {
+            url: url.to_string(),
+            error: last_error.clone().unwrap_or_else(|| "Unknown error".to_string()),
+        }).await;
+    }
+    
+    Err(OxideError::Download(format!(
+        "Failed to download {} after {} retries: {}",
+        url,
+        options.retries,
+        last_error.unwrap_or_else(|| "Unknown error".to_string())
+    )))
+}
+
+/// Internal download function (single attempt)
+async fn download_file_inner(
+    url: &str,
+    dest: &PathBuf,
+    progress_tx: Option<mpsc::Sender<DownloadProgress>>,
+    timeout_seconds: u64,
 ) -> Result<()> {
     // Ensure parent directory exists
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent)?;
     }
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(timeout_seconds))
+        .build()?;
+    
     let response = client.get(url).send().await?;
     
     if !response.status().is_success() {
@@ -82,7 +163,18 @@ pub async fn download_file_verified(
     expected_sha1: &str,
     progress_tx: Option<mpsc::Sender<DownloadProgress>>,
 ) -> Result<()> {
-    download_file(url, dest, progress_tx).await?;
+    download_file_verified_with_options(url, dest, expected_sha1, progress_tx, DownloadOptions::default()).await
+}
+
+/// Download a file and verify its SHA1 hash with custom options
+pub async fn download_file_verified_with_options(
+    url: &str,
+    dest: &PathBuf,
+    expected_sha1: &str,
+    progress_tx: Option<mpsc::Sender<DownloadProgress>>,
+    options: DownloadOptions,
+) -> Result<()> {
+    download_file_with_options(url, dest, progress_tx.clone(), options).await?;
     
     // Verify hash
     if !expected_sha1.is_empty() {
@@ -112,28 +204,46 @@ pub fn compute_sha1(path: &PathBuf) -> Result<String> {
     Ok(format!("{:x}", hash))
 }
 
-/// Download multiple files concurrently
+/// Download multiple files concurrently with default options
 pub async fn download_files(
     downloads: Vec<DownloadTask>,
     max_concurrent: usize,
     progress_tx: Option<mpsc::Sender<DownloadProgress>>,
 ) -> Vec<Result<()>> {
+    download_files_with_options(downloads, max_concurrent, progress_tx, DownloadOptions::default()).await
+}
+
+/// Download multiple files concurrently with custom options
+pub async fn download_files_with_options(
+    downloads: Vec<DownloadTask>,
+    max_concurrent: usize,
+    progress_tx: Option<mpsc::Sender<DownloadProgress>>,
+    options: DownloadOptions,
+) -> Vec<Result<()>> {
     use futures::stream::FuturesUnordered;
     
     let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(max_concurrent));
+    let options = std::sync::Arc::new(options);
     let mut futures = FuturesUnordered::new();
     
     for task in downloads {
         let sem = semaphore.clone();
         let tx = progress_tx.clone();
+        let opts = options.clone();
         
         futures.push(async move {
             let _permit = sem.acquire().await.unwrap();
             
             if task.sha1.is_some() {
-                download_file_verified(&task.url, &task.dest, task.sha1.as_deref().unwrap_or(""), tx).await
+                download_file_verified_with_options(
+                    &task.url, 
+                    &task.dest, 
+                    task.sha1.as_deref().unwrap_or(""), 
+                    tx,
+                    (*opts).clone()
+                ).await
             } else {
-                download_file(&task.url, &task.dest, tx).await
+                download_file_with_options(&task.url, &task.dest, tx, (*opts).clone()).await
             }
         });
     }

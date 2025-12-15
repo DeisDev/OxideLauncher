@@ -3,7 +3,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   Search,
-  X,
   Download,
   Plus,
   Check,
@@ -42,7 +41,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import type { InstanceInfo, ModSearchResult, InstalledMod } from "../types";
+import type { InstanceInfo, InstalledMod } from "../types";
 import { formatFileSize } from "../utils";
 import { ModDownloadDialog } from "@/components/dialogs/ModDownloadDialog";
 

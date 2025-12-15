@@ -176,6 +176,9 @@ fn main() {
             commands::config::update_config,
             commands::config::get_logs_directory,
             commands::config::open_logs_directory,
+            commands::config::open_data_directory,
+            commands::config::open_launcher_folder,
+            commands::config::open_external_url,
             // Version commands
             commands::versions::get_minecraft_versions,
             commands::versions::get_forge_versions,

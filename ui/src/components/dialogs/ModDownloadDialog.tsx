@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { open as openExternal } from "@tauri-apps/plugin-shell";
 import {
   Search,
   Download,
@@ -11,7 +12,12 @@ import {
   Trash2,
   CheckCircle,
   X,
+  Filter,
 } from "lucide-react";
+import ReactMarkdown, { Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -165,8 +171,33 @@ export function ModDownloadDialog({
   const [selectedVersion, setSelectedVersion] = useState<ModVersion | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   
+  // Category filtering state
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [availableCategories, setAvailableCategories] = useState<string[]>([]);
+  const [showCategoryFilter, setShowCategoryFilter] = useState(false);
+  
   // Queue state
   const [queue, setQueue] = useState<QueuedMod[]>([]);
+
+  // Custom markdown components to open links externally
+  const markdownComponents: Components = useMemo(() => ({
+    a: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { children?: React.ReactNode }) => (
+      <a
+        {...props}
+        href={href}
+        onClick={(e) => {
+          e.preventDefault();
+          if (href) {
+            openExternal(href);
+          }
+        }}
+        className="text-primary hover:underline cursor-pointer"
+      >
+        {children}
+      </a>
+    ),
+  }), []);
+
   const [showReviewQueue, setShowReviewQueue] = useState(false);
   const [isInstalling, setIsInstalling] = useState(false);
   const [installProgress, setInstallProgress] = useState<string>("");
@@ -192,11 +223,12 @@ export function ModDownloadDialog({
   }, [platform]);
 
   // Search mods
-  const searchMods = async (query: string, newSortBy?: SortOption) => {
+  const searchMods = async (query: string, newSortBy?: SortOption, categories?: string[]) => {
     setIsSearching(true);
     setHasSearched(true);
     
     const effectiveSortBy = newSortBy || sortBy;
+    const effectiveCategories = categories ?? selectedCategories;
     
     try {
       const results = await invoke<ModSearchResult[]>("search_mods_detailed", {
@@ -207,7 +239,23 @@ export function ModDownloadDialog({
         sortBy: effectiveSortBy,
         limit: 50,
       });
-      setSearchResults(results);
+      
+      // Extract all unique categories from results
+      const allCategories = new Set<string>();
+      results.forEach(mod => {
+        mod.categories.forEach(cat => allCategories.add(cat));
+      });
+      setAvailableCategories(Array.from(allCategories).sort());
+      
+      // Filter by selected categories if any
+      if (effectiveCategories.length > 0) {
+        const filtered = results.filter(mod =>
+          effectiveCategories.some(cat => mod.categories.includes(cat))
+        );
+        setSearchResults(filtered);
+      } else {
+        setSearchResults(results);
+      }
     } catch (error) {
       console.error("Failed to search mods:", error);
       setSearchResults([]);
@@ -244,6 +292,11 @@ export function ModDownloadDialog({
         }),
       ]);
       
+      // If Modrinth project doesn't have author (not in project response), use from search result
+      if (!details.author && selectedMod) {
+        details.author = selectedMod.author;
+      }
+      
       setModDetails(details);
       setModVersions(versions);
       
@@ -268,6 +321,7 @@ export function ModDownloadDialog({
     if (newPlatform !== platform) {
       setPlatform(newPlatform);
       setSelectedMod(null);
+      setSelectedCategories([]); // Reset category filter on platform change
     }
   };
 
@@ -275,6 +329,21 @@ export function ModDownloadDialog({
   const handleSortChange = (newSort: SortOption) => {
     setSortBy(newSort);
     searchMods(searchQuery, newSort);
+  };
+
+  // Toggle category filter
+  const toggleCategory = (category: string) => {
+    const newCategories = selectedCategories.includes(category)
+      ? selectedCategories.filter(c => c !== category)
+      : [...selectedCategories, category];
+    setSelectedCategories(newCategories);
+    searchMods(searchQuery, sortBy, newCategories);
+  };
+
+  // Clear all category filters
+  const clearCategoryFilters = () => {
+    setSelectedCategories([]);
+    searchMods(searchQuery, sortBy, []);
   };
 
   // Quick add mod to queue (from the plus button in the list)
@@ -571,7 +640,53 @@ export function ModDownloadDialog({
                       <SelectItem value="updated">Last Updated</SelectItem>
                     </SelectContent>
                   </Select>
+                  
+                  <Button
+                    variant={showCategoryFilter ? "secondary" : "outline"}
+                    size="sm"
+                    className="h-8 text-xs gap-1"
+                    onClick={() => setShowCategoryFilter(!showCategoryFilter)}
+                  >
+                    <Filter className="h-3 w-3" />
+                    Filter
+                    {selectedCategories.length > 0 && (
+                      <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">
+                        {selectedCategories.length}
+                      </Badge>
+                    )}
+                  </Button>
                 </div>
+                
+                {/* Category Filter Panel */}
+                {showCategoryFilter && availableCategories.length > 0 && (
+                  <div className="border rounded-lg p-3 bg-muted/30">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-medium text-muted-foreground uppercase">Categories</span>
+                      {selectedCategories.length > 0 && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 text-xs px-2"
+                          onClick={clearCategoryFilters}
+                        >
+                          Clear all
+                        </Button>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {availableCategories.map((category) => (
+                        <Badge
+                          key={category}
+                          variant={selectedCategories.includes(category) ? "default" : "outline"}
+                          className="cursor-pointer text-xs capitalize"
+                          onClick={() => toggleCategory(category)}
+                        >
+                          {category.replace(/-/g, " ")}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Results List */}
@@ -705,15 +820,20 @@ export function ModDownloadDialog({
                           )}
                           <div className="flex-1 min-w-0">
                             <h3 className="font-semibold text-lg truncate">{modDetails.name}</h3>
-                            <a
-                              href={`https://${platform === "modrinth" ? "modrinth.com/mod" : "curseforge.com/minecraft/mc-mods"}/${modDetails.slug}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-sm text-primary hover:underline flex items-center gap-1"
-                            >
-                              by {modDetails.author}
-                              <ExternalLink className="h-3 w-3" />
-                            </a>
+                            <p className="text-sm text-muted-foreground">
+                              by <span className="font-medium text-foreground">{modDetails.author || "Unknown"}</span>
+                              {modDetails.slug && (
+                                <a
+                                  href={`https://${platform === "modrinth" ? "modrinth.com/mod" : "curseforge.com/minecraft/mc-mods"}/${modDetails.slug}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="ml-2 text-primary hover:underline inline-flex items-center gap-1"
+                                >
+                                  View on {platform === "modrinth" ? "Modrinth" : "CurseForge"}
+                                  <ExternalLink className="h-3 w-3" />
+                                </a>
+                              )}
+                            </p>
                           </div>
                         </div>
                         
@@ -775,10 +895,15 @@ export function ModDownloadDialog({
 
                       {/* Description */}
                       <ScrollArea className="flex-1 p-4">
-                        <div 
-                          className="prose prose-sm dark:prose-invert max-w-none"
-                          dangerouslySetInnerHTML={{ __html: modDetails.body }}
-                        />
+                        <div className="prose prose-sm dark:prose-invert max-w-none prose-img:rounded-lg">
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            rehypePlugins={[rehypeRaw, rehypeSanitize]}
+                            components={markdownComponents}
+                          >
+                            {modDetails.body}
+                          </ReactMarkdown>
+                        </div>
                       </ScrollArea>
 
                       {/* Version Select and Add Button */}

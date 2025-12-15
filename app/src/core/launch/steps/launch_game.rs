@@ -246,18 +246,17 @@ impl LaunchGameStep {
             }
         }
         
-        // Window size
-        if let Some(width) = instance.settings.window_width {
-            args.push("--width".to_string());
-            args.push(width.to_string());
-        }
-        if let Some(height) = instance.settings.window_height {
-            args.push("--height".to_string());
-            args.push(height.to_string());
-        }
+        // Window size - use instance settings if set, otherwise global config
+        let width = instance.settings.window_width.unwrap_or(context.config.minecraft.window_width);
+        let height = instance.settings.window_height.unwrap_or(context.config.minecraft.window_height);
         
-        // Fullscreen
-        if instance.settings.fullscreen {
+        args.push("--width".to_string());
+        args.push(width.to_string());
+        args.push("--height".to_string());
+        args.push(height.to_string());
+        
+        // Fullscreen/Launch maximized - instance setting takes priority
+        if instance.settings.fullscreen || context.config.minecraft.launch_maximized {
             args.push("--fullscreen".to_string());
         }
         
@@ -409,8 +408,11 @@ impl LaunchStep for LaunchGameStep {
         
         self.progress = 0.5;
         
-        // Handle wrapper command
-        let (program, final_args) = if let Some(ref wrapper) = context.instance.settings.wrapper_command {
+        // Handle wrapper command - use instance-specific if set, otherwise global config
+        let wrapper_command = context.instance.settings.wrapper_command.clone()
+            .or_else(|| context.config.commands.wrapper_command.clone());
+            
+        let (program, final_args) = if let Some(ref wrapper) = wrapper_command {
             if !wrapper.trim().is_empty() {
                 // Split wrapper command
                 let mut wrapper_parts: Vec<String> = wrapper.split_whitespace().map(String::from).collect();
