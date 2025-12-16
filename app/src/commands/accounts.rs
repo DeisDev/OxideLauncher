@@ -4,7 +4,7 @@ use super::state::AppState;
 use crate::core::accounts::{
     complete_authentication, create_offline_account, poll_device_code, refresh_microsoft_account,
     start_device_code_flow, validate_offline_username, Account, AccountList, AuthProgressEvent,
-    DeviceCodeInfo, PollResult, MSA_CLIENT_ID,
+    DeviceCodeInfo, PollResult, MSA_CLIENT_ID, skins, SkinVariant,
 };
 use serde::Serialize;
 use std::collections::HashMap;
@@ -544,5 +544,383 @@ pub async fn get_account_for_launch(
 #[tauri::command]
 pub async fn is_microsoft_configured() -> Result<bool, String> {
     Ok(MSA_CLIENT_ID != "YOUR_AZURE_CLIENT_ID_HERE")
+}
+
+// =============================================================================
+// Skin Management Commands
+// =============================================================================
+
+/// Skin info for frontend
+#[derive(Debug, Clone, Serialize)]
+pub struct SkinInfoResponse {
+    pub id: String,
+    pub url: String,
+    pub variant: String,
+    pub is_active: bool,
+}
+
+/// Cape info for frontend
+#[derive(Debug, Clone, Serialize)]
+pub struct CapeInfoResponse {
+    pub id: String,
+    pub url: String,
+    pub alias: Option<String>,
+    pub is_active: bool,
+}
+
+/// Player profile for frontend
+#[derive(Debug, Clone, Serialize)]
+pub struct PlayerProfileResponse {
+    pub id: String,
+    pub name: String,
+    pub skins: Vec<SkinInfoResponse>,
+    pub capes: Vec<CapeInfoResponse>,
+    pub active_skin: Option<SkinInfoResponse>,
+    pub active_cape: Option<CapeInfoResponse>,
+}
+
+/// Fetched skin info for import
+#[derive(Debug, Clone, Serialize)]
+pub struct FetchedSkinResponse {
+    pub uuid: String,
+    pub username: String,
+    pub skin_url: Option<String>,
+    pub skin_variant: String,
+    pub cape_url: Option<String>,
+}
+
+/// Helper to get access token for an account
+fn get_account_access_token(accounts_file: &std::path::PathBuf, account_id: &str) -> Result<String, String> {
+    let account_list = AccountList::load(accounts_file).unwrap_or_default();
+    let account = account_list
+        .get(account_id)
+        .ok_or("Account not found")?;
+
+    if !account.is_online() {
+        return Err("Skin management is only available for Microsoft accounts".to_string());
+    }
+
+    let access_token = account.get_access_token();
+    if access_token.is_empty() {
+        return Err("Account has no valid access token. Please refresh the account.".to_string());
+    }
+
+    Ok(access_token)
+}
+
+/// Get the full player profile including skins and capes
+#[tauri::command(rename_all = "camelCase")]
+pub async fn get_player_profile(
+    state: State<'_, AppState>,
+    account_id: String,
+) -> Result<PlayerProfileResponse, String> {
+    let accounts_file = {
+        let config = state.config.lock().unwrap();
+        config.accounts_file()
+    };
+
+    let access_token = get_account_access_token(&accounts_file, &account_id)?;
+
+    let profile = skins::get_player_profile(&access_token)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(PlayerProfileResponse {
+        id: profile.id,
+        name: profile.name,
+        skins: profile.skins.iter().map(|s| SkinInfoResponse {
+            id: s.id.clone(),
+            url: s.url.clone(),
+            variant: match s.variant {
+                SkinVariant::Slim => "slim".to_string(),
+                SkinVariant::Classic => "classic".to_string(),
+            },
+            is_active: profile.active_skin.as_ref().map(|a| a.id == s.id).unwrap_or(false),
+        }).collect(),
+        capes: profile.capes.iter().map(|c| CapeInfoResponse {
+            id: c.id.clone(),
+            url: c.url.clone(),
+            alias: None,
+            is_active: profile.active_cape.as_ref().map(|a| a.id == c.id).unwrap_or(false),
+        }).collect(),
+        active_skin: profile.active_skin.map(|s| SkinInfoResponse {
+            id: s.id.clone(),
+            url: s.url.clone(),
+            variant: match s.variant {
+                SkinVariant::Slim => "slim".to_string(),
+                SkinVariant::Classic => "classic".to_string(),
+            },
+            is_active: true,
+        }),
+        active_cape: profile.active_cape.map(|c| CapeInfoResponse {
+            id: c.id.clone(),
+            url: c.url.clone(),
+            alias: None,
+            is_active: true,
+        }),
+    })
+}
+
+/// Change skin using a URL
+#[tauri::command(rename_all = "camelCase")]
+pub async fn change_skin_url(
+    state: State<'_, AppState>,
+    account_id: String,
+    skin_url: String,
+    variant: String,
+) -> Result<(), String> {
+    let accounts_file = {
+        let config = state.config.lock().unwrap();
+        config.accounts_file()
+    };
+
+    let access_token = get_account_access_token(&accounts_file, &account_id)?;
+
+    let skin_variant = match variant.to_lowercase().as_str() {
+        "slim" => SkinVariant::Slim,
+        _ => SkinVariant::Classic,
+    };
+
+    skins::change_skin_url(&access_token, &skin_url, skin_variant)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Upload a skin from file
+#[tauri::command(rename_all = "camelCase")]
+pub async fn upload_skin(
+    state: State<'_, AppState>,
+    account_id: String,
+    image_data: Vec<u8>,
+    variant: String,
+) -> Result<(), String> {
+    // Validate skin image
+    skins::validate_skin_image(&image_data)
+        .map_err(|e| e.to_string())?;
+
+    let accounts_file = {
+        let config = state.config.lock().unwrap();
+        config.accounts_file()
+    };
+
+    let access_token = get_account_access_token(&accounts_file, &account_id)?;
+
+    let skin_variant = match variant.to_lowercase().as_str() {
+        "slim" => SkinVariant::Slim,
+        _ => SkinVariant::Classic,
+    };
+
+    skins::upload_skin(&access_token, &image_data, skin_variant)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Reset skin to default
+#[tauri::command(rename_all = "camelCase")]
+pub async fn reset_skin(
+    state: State<'_, AppState>,
+    account_id: String,
+) -> Result<(), String> {
+    let accounts_file = {
+        let config = state.config.lock().unwrap();
+        config.accounts_file()
+    };
+
+    let access_token = get_account_access_token(&accounts_file, &account_id)?;
+
+    skins::reset_skin(&access_token)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Set active cape
+#[tauri::command(rename_all = "camelCase")]
+pub async fn set_cape(
+    state: State<'_, AppState>,
+    account_id: String,
+    cape_id: String,
+) -> Result<(), String> {
+    let accounts_file = {
+        let config = state.config.lock().unwrap();
+        config.accounts_file()
+    };
+
+    let access_token = get_account_access_token(&accounts_file, &account_id)?;
+
+    skins::set_cape(&access_token, &cape_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Hide cape (remove active cape)
+#[tauri::command(rename_all = "camelCase")]
+pub async fn hide_cape(
+    state: State<'_, AppState>,
+    account_id: String,
+) -> Result<(), String> {
+    let accounts_file = {
+        let config = state.config.lock().unwrap();
+        config.accounts_file()
+    };
+
+    let access_token = get_account_access_token(&accounts_file, &account_id)?;
+
+    skins::hide_cape(&access_token)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Fetch skin from a username (for importing someone else's skin)
+#[tauri::command(rename_all = "camelCase")]
+pub async fn fetch_skin_from_username(
+    username: String,
+) -> Result<FetchedSkinResponse, String> {
+    let fetched = skins::fetch_skin_from_username(&username)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(FetchedSkinResponse {
+        uuid: fetched.uuid,
+        username: fetched.username,
+        skin_url: fetched.skin_url,
+        skin_variant: match fetched.skin_variant {
+            SkinVariant::Slim => "slim".to_string(),
+            SkinVariant::Classic => "classic".to_string(),
+        },
+        cape_url: fetched.cape_url,
+    })
+}
+
+/// Import skin from another player (by username)
+#[tauri::command(rename_all = "camelCase")]
+pub async fn import_skin_from_username(
+    state: State<'_, AppState>,
+    account_id: String,
+    username: String,
+    use_original_variant: bool,
+    override_variant: Option<String>,
+) -> Result<(), String> {
+    // Fetch the skin from the username first
+    let fetched = skins::fetch_skin_from_username(&username)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let skin_url = fetched.skin_url
+        .ok_or("Player has no custom skin to import")?;
+
+    let variant = if use_original_variant {
+        fetched.skin_variant
+    } else if let Some(v) = override_variant {
+        match v.to_lowercase().as_str() {
+            "slim" => SkinVariant::Slim,
+            _ => SkinVariant::Classic,
+        }
+    } else {
+        fetched.skin_variant
+    };
+
+    // Get account access token
+    let accounts_file = {
+        let config = state.config.lock().unwrap();
+        config.accounts_file()
+    };
+
+    let access_token = get_account_access_token(&accounts_file, &account_id)?;
+
+    // Set the skin using the URL
+    skins::change_skin_url(&access_token, &skin_url, variant)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Open the skins folder
+#[tauri::command]
+pub async fn open_skins_folder(
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let data_dir = {
+        let config = state.config.lock().unwrap();
+        config.data_dir()
+    };
+
+    let skins_folder = skins::get_skins_folder(&data_dir);
+    
+    // Create folder if it doesn't exist
+    std::fs::create_dir_all(&skins_folder)
+        .map_err(|e| format!("Failed to create skins folder: {}", e))?;
+
+    // Open in file explorer
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(&skins_folder)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&skins_folder)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&skins_folder)
+            .spawn()
+            .map_err(|e| format!("Failed to open folder: {}", e))?;
+    }
+
+    Ok(())
+}
+
+/// Set an account as the default account
+#[tauri::command(rename_all = "camelCase")]
+pub async fn set_default_account(
+    state: State<'_, AppState>,
+    account_id: String,
+) -> Result<(), String> {
+    let accounts_file = {
+        let config = state.config.lock().unwrap();
+        config.accounts_file()
+    };
+
+    let mut account_list = AccountList::load(&accounts_file).unwrap_or_default();
+    
+    // Verify account exists
+    if !account_list.accounts.iter().any(|a| a.id == account_id) {
+        return Err("Account not found".to_string());
+    }
+    
+    account_list.set_active(&account_id);
+    account_list
+        .save(&accounts_file)
+        .map_err(|e| e.to_string())?;
+
+    // Update state
+    {
+        let mut accounts = state.accounts.lock().unwrap();
+        for account in accounts.iter_mut() {
+            account.is_active = account.id == account_id;
+        }
+    }
+
+    Ok(())
+}
+
+/// Download a skin image and return as base64
+#[tauri::command(rename_all = "camelCase")]
+pub async fn download_skin_image(
+    skin_url: String,
+) -> Result<String, String> {
+    let image_data = skins::download_skin_image(&skin_url)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    use base64::Engine;
+    Ok(base64::engine::general_purpose::STANDARD.encode(&image_data))
 }
 

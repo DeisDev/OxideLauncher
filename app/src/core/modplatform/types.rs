@@ -123,6 +123,24 @@ pub struct License {
     pub url: Option<String>,
 }
 
+/// Dependency type for mod dependencies
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DependencyType {
+    Required,
+    Optional,
+    Incompatible,
+    Embedded,
+    Unknown,
+}
+
+/// Mod dependency information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Dependency {
+    pub project_id: Option<String>,
+    pub version_id: Option<String>,
+    pub dependency_type: DependencyType,
+}
+
 /// Project version/file
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectVersion {
@@ -138,6 +156,8 @@ pub struct ProjectVersion {
     pub date_published: DateTime<Utc>,
     pub version_type: VersionType,
     pub platform: Platform,
+    #[serde(default)]
+    pub dependencies: Vec<Dependency>,
 }
 
 /// Version release type

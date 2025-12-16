@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useEffect, useState, useRef } from "react";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { ArrowLeft, Save, Play, Square, ChevronDown, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { useConfig } from "@/hooks/useConfig";
 
 // Import modular tab components
 import {
@@ -32,11 +33,20 @@ import {
 export function InstanceDetailsView() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<TabType>("log");
+  const [searchParams] = useSearchParams();
+  const { config } = useConfig();
+  
+  // Get initial tab from URL parameter, default to "log"
+  const initialTab = (searchParams.get("tab") as TabType) || "log";
+  const [activeTab, setActiveTab] = useState<TabType>(initialTab);
   const [instance, setInstance] = useState<InstanceInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [launching, setLaunching] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
+  
+  // Track previous running state for detecting game exit
+  const wasRunningRef = useRef(false);
+  const lastExitCodeRef = useRef<number | null>(null);
 
   // Log state
   const [logContent, setLogContent] = useState<string[]>([]);
@@ -53,11 +63,34 @@ export function InstanceDetailsView() {
 
     const interval = setInterval(async () => {
       try {
-        // Check if instance is running
-        const running = await invoke<boolean>("is_instance_running", {
+        // Check if instance is running and get exit status
+        const status = await invoke<{ running: boolean; exit_code: number | null }>("get_instance_status", {
           instanceId: id,
         });
-        setIsRunning(running);
+        
+        const wasRunning = wasRunningRef.current;
+        setIsRunning(status.running);
+        
+        // Detect game exit
+        if (wasRunning && !status.running) {
+          lastExitCodeRef.current = status.exit_code;
+          
+          // Reload instance to get updated playtime
+          await loadInstance();
+          
+          // Handle auto-close console on normal exit
+          if (config?.minecraft.auto_close_console && status.exit_code === 0) {
+            navigate("/");
+            return;
+          }
+          
+          // Handle show console on error
+          if (config?.minecraft.show_console_on_error && status.exit_code !== 0 && status.exit_code !== null) {
+            setActiveTab("log");
+          }
+        }
+        
+        wasRunningRef.current = status.running;
 
         // Fetch logs
         const logs = await invoke<string[]>("get_instance_logs", {
@@ -72,7 +105,7 @@ export function InstanceDetailsView() {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [id]);
+  }, [id, config?.minecraft.auto_close_console, config?.minecraft.show_console_on_error, navigate]);
 
   useEffect(() => {
     if (activeTab === "notes") {
@@ -130,6 +163,12 @@ export function InstanceDetailsView() {
         launchMode: mode
       });
       setIsRunning(true);
+      wasRunningRef.current = true;
+      
+      // Switch to log tab if show_console is enabled
+      if (config?.minecraft.show_console) {
+        setActiveTab("log");
+      }
     } catch (error) {
       console.error("Failed to launch game:", error);
       alert("Failed to launch game: " + error);
@@ -262,6 +301,7 @@ export function InstanceDetailsView() {
           {/* Log Tab */}
           <TabsContent value="log" className="h-full m-0">
             <LogTab
+              instanceId={id}
               logContent={logContent}
               setLogContent={setLogContent}
               searchTerm={searchTerm}

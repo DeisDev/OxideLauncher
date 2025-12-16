@@ -713,6 +713,14 @@ pub struct ModDependencyResponse {
     pub dependency_type: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ModSearchResponse {
+    pub mods: Vec<ModSearchResultDetailed>,
+    pub total_hits: u32,
+    pub offset: u32,
+    pub limit: u32,
+}
+
 #[tauri::command]
 pub async fn search_mods_detailed(
     query: String,
@@ -721,8 +729,11 @@ pub async fn search_mods_detailed(
     platform: String,
     sort_by: String,
     limit: u32,
-) -> Result<Vec<ModSearchResultDetailed>, String> {
+    offset: Option<u32>,
+) -> Result<ModSearchResponse, String> {
     use crate::core::modplatform::types::SortOrder;
+    
+    let offset_val = offset.unwrap_or(0);
     
     let loaders = if mod_loader != "vanilla" && !mod_loader.is_empty() { 
         vec![mod_loader.to_lowercase()] 
@@ -747,7 +758,7 @@ pub async fn search_mods_detailed(
         loaders: loaders.clone(),
         sort,
         limit,
-        offset: 0,
+        offset: offset_val,
     };
     
     match platform.to_lowercase().as_str() {
@@ -761,21 +772,26 @@ pub async fn search_mods_detailed(
                 .await
                 .map_err(|e| format!("Failed to search CurseForge: {}", e))?;
             
-            Ok(results.hits.into_iter().map(|hit| ModSearchResultDetailed {
-                id: hit.id,
-                slug: hit.slug,
-                name: hit.title,
-                description: hit.description,
-                author: hit.author,
-                downloads: hit.downloads,
-                follows: hit.follows,
-                icon_url: hit.icon_url,
-                project_type: format!("{:?}", hit.resource_type),
-                platform: "curseforge".to_string(),
-                categories: hit.categories,
-                date_created: hit.date_created.to_rfc3339(),
-                date_modified: hit.date_modified.to_rfc3339(),
-            }).collect())
+            Ok(ModSearchResponse {
+                mods: results.hits.into_iter().map(|hit| ModSearchResultDetailed {
+                    id: hit.id,
+                    slug: hit.slug,
+                    name: hit.title,
+                    description: hit.description,
+                    author: hit.author,
+                    downloads: hit.downloads,
+                    follows: hit.follows,
+                    icon_url: hit.icon_url,
+                    project_type: format!("{:?}", hit.resource_type),
+                    platform: "curseforge".to_string(),
+                    categories: hit.categories,
+                    date_created: hit.date_created.to_rfc3339(),
+                    date_modified: hit.date_modified.to_rfc3339(),
+                }).collect(),
+                total_hits: results.total_hits,
+                offset: results.offset,
+                limit: results.limit,
+            })
         },
         _ => {
             let client = ModrinthClient::new();
@@ -784,21 +800,26 @@ pub async fn search_mods_detailed(
                 .await
                 .map_err(|e| format!("Failed to search Modrinth: {}", e))?;
             
-            Ok(results.hits.into_iter().map(|hit| ModSearchResultDetailed {
-                id: hit.id,
-                slug: hit.slug,
-                name: hit.title,
-                description: hit.description,
-                author: hit.author,
-                downloads: hit.downloads,
-                follows: hit.follows,
-                icon_url: hit.icon_url,
-                project_type: format!("{:?}", hit.resource_type),
-                platform: "modrinth".to_string(),
-                categories: hit.categories,
-                date_created: hit.date_created.to_rfc3339(),
-                date_modified: hit.date_modified.to_rfc3339(),
-            }).collect())
+            Ok(ModSearchResponse {
+                mods: results.hits.into_iter().map(|hit| ModSearchResultDetailed {
+                    id: hit.id,
+                    slug: hit.slug,
+                    name: hit.title,
+                    description: hit.description,
+                    author: hit.author,
+                    downloads: hit.downloads,
+                    follows: hit.follows,
+                    icon_url: hit.icon_url,
+                    project_type: format!("{:?}", hit.resource_type),
+                    platform: "modrinth".to_string(),
+                    categories: hit.categories,
+                    date_created: hit.date_created.to_rfc3339(),
+                    date_modified: hit.date_modified.to_rfc3339(),
+                }).collect(),
+                total_hits: results.total_hits,
+                offset: results.offset,
+                limit: results.limit,
+            })
         }
     }
 }
@@ -925,7 +946,18 @@ pub async fn get_mod_versions(
                     size: f.size,
                     primary: f.primary,
                 }).collect(),
-                dependencies: vec![], // TODO: CurseForge dependencies
+                dependencies: v.dependencies.into_iter()
+                    .filter(|d| d.project_id.is_some())
+                    .map(|d| ModDependencyResponse {
+                        project_id: d.project_id.unwrap_or_default(),
+                        dependency_type: match d.dependency_type {
+                            crate::core::modplatform::types::DependencyType::Required => "required".to_string(),
+                            crate::core::modplatform::types::DependencyType::Optional => "optional".to_string(),
+                            crate::core::modplatform::types::DependencyType::Incompatible => "incompatible".to_string(),
+                            crate::core::modplatform::types::DependencyType::Embedded => "embedded".to_string(),
+                            crate::core::modplatform::types::DependencyType::Unknown => "unknown".to_string(),
+                        },
+                    }).collect(),
             }).collect())
         },
         _ => {
@@ -951,7 +983,18 @@ pub async fn get_mod_versions(
                     size: f.size,
                     primary: f.primary,
                 }).collect(),
-                dependencies: vec![], // TODO: Modrinth dependencies
+                dependencies: v.dependencies.into_iter()
+                    .filter(|d| d.project_id.is_some())
+                    .map(|d| ModDependencyResponse {
+                        project_id: d.project_id.unwrap_or_default(),
+                        dependency_type: match d.dependency_type {
+                            crate::core::modplatform::types::DependencyType::Required => "required".to_string(),
+                            crate::core::modplatform::types::DependencyType::Optional => "optional".to_string(),
+                            crate::core::modplatform::types::DependencyType::Incompatible => "incompatible".to_string(),
+                            crate::core::modplatform::types::DependencyType::Embedded => "embedded".to_string(),
+                            crate::core::modplatform::types::DependencyType::Unknown => "unknown".to_string(),
+                        },
+                    }).collect(),
             }).collect())
         }
     }

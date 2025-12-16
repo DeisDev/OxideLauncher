@@ -374,7 +374,9 @@ pub async fn complete_authentication(
     
     if !account_data.minecraft_entitlement.owns_minecraft {
         return Err(OxideError::Auth(
-            "This Microsoft account does not own Minecraft Java Edition".into()
+            "This Microsoft account does not own Minecraft Java Edition. \
+             If you believe you own the game, please visit minecraft.net to verify your purchase. \
+             Note: Minecraft Bedrock Edition (Windows 10/11) is a separate game from Java Edition.".into()
         ));
     }
     
@@ -430,9 +432,18 @@ pub async fn refresh_microsoft_account(
         .await?;
     
     if !response.status().is_success() {
+        let status = response.status();
         let error_text = response.text().await.unwrap_or_default();
-        tracing::error!("Token refresh failed: {}", error_text);
-        return Err(OxideError::Auth("Failed to refresh token. Please log in again.".into()));
+        tracing::error!("Token refresh failed ({}): {}", status, error_text);
+        
+        let message = match status.as_u16() {
+            400 => "Failed to refresh token: The refresh token is invalid or has expired. Please log in again.",
+            401 => "Failed to refresh token: Authorization failed. Please log in again.",
+            429 => "Failed to refresh token: Too many requests. Please wait and try again.",
+            500..=599 => "Failed to refresh token: Microsoft servers are experiencing issues. Please try again later.",
+            _ => "Failed to refresh token: Could not renew your session. Please log in again.",
+        };
+        return Err(OxideError::Auth(message.into()));
     }
     
     let ms_token: MsTokenResponse = response.json().await?;
@@ -534,7 +545,15 @@ async fn authenticate_xbox_user(client: &reqwest::Client, ms_token: &str) -> Res
         let status = response.status();
         let error_text = response.text().await.unwrap_or_default();
         tracing::error!("Xbox user auth failed ({}): {}", status, error_text);
-        return Err(OxideError::Auth("Xbox Live authentication failed".into()));
+        
+        let message = match status.as_u16() {
+            401 => "Xbox Live authentication failed: Invalid or expired Microsoft token. Please try logging in again.",
+            403 => "Xbox Live authentication failed: Access forbidden. Your Microsoft account may have restrictions.",
+            429 => "Xbox Live authentication failed: Too many requests. Please wait a moment and try again.",
+            500..=599 => "Xbox Live authentication failed: Xbox servers are experiencing issues. Please try again later.",
+            _ => "Xbox Live authentication failed: Could not authenticate with Xbox Live services.",
+        };
+        return Err(OxideError::Auth(message.into()));
     }
     
     let xbl: XblResponse = response.json().await?;
@@ -581,18 +600,30 @@ async fn authenticate_xsts(
     
     if !response.status().is_success() {
         // Try to parse XSTS error
+        let status = response.status();
         let error_text = response.text().await.unwrap_or_default();
         if let Ok(error) = serde_json::from_str::<XstsErrorResponse>(&error_text) {
             let message = match error.xerr {
-                Some(2148916233) => "This Microsoft account does not have an Xbox account. Please create one at xbox.com",
-                Some(2148916235) => "Xbox Live is not available in your country/region",
-                Some(2148916236) | Some(2148916237) => "This account requires adult verification. Please visit xbox.com",
-                Some(2148916238) => "This is a child account. Please add it to a family group at xbox.com",
-                _ => "Xbox authorization failed",
+                Some(2148916233) => "Xbox authorization failed: This Microsoft account does not have an Xbox account. Please create one at xbox.com/xbox-live",
+                Some(2148916234) => "Xbox authorization failed: This account is banned from Xbox Live services.",
+                Some(2148916235) => "Xbox authorization failed: Xbox Live is not available in your country/region. You may need a VPN or a different account.",
+                Some(2148916236) => "Xbox authorization failed: This account requires adult verification. Please sign in at account.xbox.com and complete verification.",
+                Some(2148916237) => "Xbox authorization failed: This account requires adult verification (parental consent). Please visit account.xbox.com",
+                Some(2148916238) => "Xbox authorization failed: This is a child account and must be added to a Family group. Please visit account.xbox.com/family",
+                Some(2148916239) => "Xbox authorization failed: Microsoft account sign-in required. Please complete sign-in at account.microsoft.com",
+                _ => "Xbox authorization failed: Could not get authorization for Minecraft services.",
             };
             return Err(OxideError::Auth(message.into()));
         }
-        return Err(OxideError::Auth(format!("XSTS authorization failed: {}", error_text)));
+        
+        let message = match status.as_u16() {
+            401 => "Xbox authorization failed: Your Xbox session has expired. Please try logging in again.",
+            403 => "Xbox authorization failed: Access to Minecraft services was denied.",
+            429 => "Xbox authorization failed: Rate limited. Please wait a moment and try again.",
+            500..=599 => "Xbox authorization failed: Xbox servers are experiencing issues. Please try again later.",
+            _ => &format!("Xbox authorization failed: Server returned error {}", status),
+        };
+        return Err(OxideError::Auth(message.to_string()));
     }
     
     let xbl: XblResponse = response.json().await?;
@@ -645,7 +676,22 @@ async fn authenticate_minecraft(client: &reqwest::Client, xsts_token: &Token) ->
         let status = response.status();
         let error_text = response.text().await.unwrap_or_default();
         tracing::error!("Minecraft login failed ({}): {}", status, error_text);
-        return Err(OxideError::Auth(format!("Failed to get Minecraft access token: {}", error_text)));
+        
+        let message = match status.as_u16() {
+            401 => "Minecraft authentication failed: Invalid Xbox credentials. Please try logging in again.",
+            403 => "Minecraft authentication failed: Access denied. Your account may not have permission to access Minecraft services.",
+            404 => "Minecraft authentication failed: Minecraft services endpoint not found. This may be a temporary issue.",
+            429 => "Minecraft authentication failed: Too many login attempts. Please wait a few minutes and try again.",
+            500..=599 => "Minecraft authentication failed: Minecraft servers are experiencing issues. Please try again later.",
+            _ => {
+                if error_text.contains("NOT_FOUND") {
+                    "Minecraft authentication failed: Could not find your Minecraft account. Please ensure you own Minecraft Java Edition."
+                } else {
+                    "Minecraft authentication failed: Could not obtain Minecraft access token."
+                }
+            }
+        };
+        return Err(OxideError::Auth(message.into()));
     }
     
     let mc: McTokenResponse = response.json().await?;
@@ -712,15 +758,25 @@ async fn get_minecraft_profile(client: &reqwest::Client, mc_token: &str) -> Resu
     
     if response.status() == 404 {
         return Err(OxideError::Auth(
-            "This Microsoft account does not have a Minecraft profile. \
-             Please ensure you own Minecraft Java Edition and have set up a profile at minecraft.net".into()
+            "Minecraft profile not found: This Microsoft account does not have a Minecraft profile. \
+             Please ensure you own Minecraft Java Edition and have set up a profile at minecraft.net. \
+             If you recently purchased the game, it may take a few minutes for your profile to be created.".into()
         ));
     }
     
     if !response.status().is_success() {
+        let status = response.status();
         let error_text = response.text().await.unwrap_or_default();
-        tracing::error!("Profile fetch failed: {}", error_text);
-        return Err(OxideError::Auth("Failed to fetch Minecraft profile".into()));
+        tracing::error!("Profile fetch failed ({}): {}", status, error_text);
+        
+        let message = match status.as_u16() {
+            401 => "Failed to fetch Minecraft profile: Your session has expired. Please log in again.",
+            403 => "Failed to fetch Minecraft profile: Access denied to profile services.",
+            429 => "Failed to fetch Minecraft profile: Rate limited. Please wait and try again.",
+            500..=599 => "Failed to fetch Minecraft profile: Minecraft servers are experiencing issues.",
+            _ => "Failed to fetch Minecraft profile: Could not retrieve your profile information.",
+        };
+        return Err(OxideError::Auth(message.into()));
     }
     
     let profile: McProfileResponse = response.json().await?;

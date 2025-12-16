@@ -15,6 +15,10 @@ import {
   Palette,
   Sun,
   Filter,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
 } from "lucide-react";
 import ReactMarkdown, { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -137,7 +141,16 @@ interface QueuedResource {
   iconUrl: string | null;
 }
 
+interface ResourceSearchResponse {
+  resources: ResourceSearchResult[];
+  total_hits: number;
+  offset: number;
+  limit: number;
+}
+
 type SortOption = "relevance" | "downloads" | "follows" | "newest" | "updated";
+
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const;
 
 export function ResourceDownloadDialog({
   open,
@@ -157,6 +170,11 @@ export function ResourceDownloadDialog({
   const [searchResults, setSearchResults] = useState<ResourceSearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalHits, setTotalHits] = useState(0);
+  const [pageSize, setPageSize] = useState<number>(25);
   
   // Selected resource state
   const [selectedResource, setSelectedResource] = useState<ResourceSearchResult | null>(null);
@@ -234,49 +252,75 @@ export function ResourceDownloadDialog({
   // Refresh results when platform changes
   useEffect(() => {
     if (open && hasSearched) {
-      searchResources(searchQuery);
+      searchResources(searchQuery, sortBy, selectedCategories, 1);
     }
   }, [platform]);
 
   // Search resources
-  const searchResources = async (query: string, newSortBy?: SortOption, categories?: string[]) => {
+  const searchResources = async (query: string, newSortBy?: SortOption, categories?: string[], page?: number, newPageSize?: number) => {
     setIsSearching(true);
     setHasSearched(true);
     
     const effectiveSortBy = newSortBy || sortBy;
     const effectiveCategories = categories ?? selectedCategories;
+    const effectivePage = page ?? currentPage;
+    const effectivePageSize = newPageSize ?? pageSize;
+    const offset = (effectivePage - 1) * effectivePageSize;
     
     try {
-      const results = await invoke<ResourceSearchResult[]>(config.searchCommand, {
+      const response = await invoke<ResourceSearchResponse>(config.searchCommand, {
         query: query || "",
         minecraftVersion,
         platform,
         sortBy: effectiveSortBy,
-        limit: 50,
+        limit: effectivePageSize,
+        offset,
       });
       
       // Extract all unique categories from results
       const allCategories = new Set<string>();
-      results.forEach(resource => {
+      response.resources.forEach(resource => {
         resource.categories.forEach(cat => allCategories.add(cat));
       });
       setAvailableCategories(Array.from(allCategories).sort());
       
       // Filter by selected categories if any
       if (effectiveCategories.length > 0) {
-        const filtered = results.filter(resource =>
+        const filtered = response.resources.filter(resource =>
           effectiveCategories.some(cat => resource.categories.includes(cat))
         );
         setSearchResults(filtered);
       } else {
-        setSearchResults(results);
+        setSearchResults(response.resources);
       }
+      
+      setTotalHits(response.total_hits);
+      setCurrentPage(effectivePage);
     } catch (error) {
       console.error("Failed to search resources:", error);
       setSearchResults([]);
+      setTotalHits(0);
     } finally {
       setIsSearching(false);
     }
+  };
+  
+  // Calculate total pages
+  const totalPages = Math.ceil(totalHits / pageSize);
+  
+  // Handle page change
+  const handlePageChange = (newPage: number) => {
+    if (newPage >= 1 && newPage <= totalPages && newPage !== currentPage) {
+      setCurrentPage(newPage);
+      searchResources(searchQuery, sortBy, selectedCategories, newPage);
+    }
+  };
+  
+  // Handle page size change
+  const handlePageSizeChange = (newSize: number) => {
+    setPageSize(newSize);
+    setCurrentPage(1); // Reset to first page when changing page size
+    searchResources(searchQuery, sortBy, selectedCategories, 1, newSize);
   };
 
   // Load resource details when a resource is selected
@@ -327,7 +371,8 @@ export function ResourceDownloadDialog({
 
   // Handle search
   const handleSearch = () => {
-    searchResources(searchQuery);
+    setCurrentPage(1); // Reset to first page on new search
+    searchResources(searchQuery, sortBy, selectedCategories, 1);
   };
 
   // Handle platform change
@@ -336,13 +381,15 @@ export function ResourceDownloadDialog({
       setPlatform(newPlatform);
       setSelectedResource(null);
       setSelectedCategories([]); // Reset category filter on platform change
+      setCurrentPage(1); // Reset pagination on platform change
     }
   };
 
   // Handle sort change
   const handleSortChange = (newSort: SortOption) => {
     setSortBy(newSort);
-    searchResources(searchQuery, newSort);
+    setCurrentPage(1); // Reset to first page on sort change
+    searchResources(searchQuery, newSort, selectedCategories, 1);
   };
 
   // Toggle category filter
@@ -351,13 +398,15 @@ export function ResourceDownloadDialog({
       ? selectedCategories.filter(c => c !== category)
       : [...selectedCategories, category];
     setSelectedCategories(newCategories);
-    searchResources(searchQuery, sortBy, newCategories);
+    setCurrentPage(1); // Reset to first page on category change
+    searchResources(searchQuery, sortBy, newCategories, 1);
   };
 
   // Clear all category filters
   const clearCategoryFilters = () => {
     setSelectedCategories([]);
-    searchResources(searchQuery, sortBy, []);
+    setCurrentPage(1); // Reset to first page
+    searchResources(searchQuery, sortBy, [], 1);
   };
 
   // Quick add resource to queue (from the plus button in the list)
@@ -714,6 +763,75 @@ export function ResourceDownloadDialog({
                   )}
                 </div>
               </ScrollArea>
+              
+              {/* Pagination Controls */}
+              {totalHits > 0 && (
+                <div className="p-3 border-t flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">
+                      {totalHits.toLocaleString()} {totalHits === 1 ? "result" : "results"}
+                    </span>
+                    <Select
+                      value={pageSize.toString()}
+                      onValueChange={(value) => handlePageSizeChange(Number(value))}
+                    >
+                      <SelectTrigger className="h-7 w-[70px] text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PAGE_SIZE_OPTIONS.map((size) => (
+                          <SelectItem key={size} value={size.toString()}>
+                            {size}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <span className="text-xs text-muted-foreground">per page</span>
+                  </div>
+                  
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0"
+                      onClick={() => handlePageChange(1)}
+                      disabled={currentPage === 1 || isSearching}
+                    >
+                      <ChevronsLeft className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0"
+                      onClick={() => handlePageChange(currentPage - 1)}
+                      disabled={currentPage === 1 || isSearching}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <span className="text-xs px-2 min-w-[80px] text-center">
+                      Page {currentPage} of {totalPages || 1}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0"
+                      onClick={() => handlePageChange(currentPage + 1)}
+                      disabled={currentPage >= totalPages || isSearching}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0"
+                      onClick={() => handlePageChange(totalPages)}
+                      disabled={currentPage >= totalPages || isSearching}
+                    >
+                      <ChevronsRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Right Panel - Resource Details */}

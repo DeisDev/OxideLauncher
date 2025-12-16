@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import {
-  Plus, Play, Trash2, Info, Pencil, Folder, Copy, FileOutput,
+  Plus, Play, Trash2, Info, Pencil, Folder, Copy, FileOutput, FileInput,
   Image, Settings, Square, FolderTree, Link as LinkIcon, Feather,
   ArrowUpDown, Grid, List, Clock
 } from "lucide-react";
@@ -56,6 +56,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useConfig } from "@/hooks/useConfig";
+import { ExportInstanceDialog, ImportInstanceDialog } from "@/components/dialogs";
 
 interface InstanceInfo {
   id: string;
@@ -139,7 +140,10 @@ export function InstancesView() {
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
   const [groupDialogOpen, setGroupDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [selectedInstance, setSelectedInstance] = useState<string | null>(null);
+  const [selectedInstanceName, setSelectedInstanceName] = useState<string>("");
   const [renameName, setRenameName] = useState("");
   const [groupName, setGroupName] = useState("");
 
@@ -161,6 +165,10 @@ export function InstancesView() {
   const launchInstance = async (id: string) => {
     try {
       await invoke("launch_instance", { instanceId: id });
+      // Navigate to instance details with log tab if show_console is enabled
+      if (config?.minecraft.show_console) {
+        navigate(`/instance/${id}?tab=log`);
+      }
     } catch (error) {
       console.error("Failed to launch instance:", error);
     }
@@ -261,6 +269,12 @@ export function InstancesView() {
   const openDeleteDialog = (instanceId: string) => {
     setSelectedInstance(instanceId);
     setDeleteDialogOpen(true);
+  };
+
+  const openExportDialog = (instance: InstanceInfo) => {
+    setSelectedInstance(instance.id);
+    setSelectedInstanceName(instance.name);
+    setExportDialogOpen(true);
   };
 
   // Grid size classes based on settings
@@ -538,7 +552,7 @@ export function InstancesView() {
         <Folder className="mr-2 h-4 w-4" />
         Folder
       </ContextMenuItem>
-      <ContextMenuItem>
+      <ContextMenuItem onClick={() => openExportDialog(instance)}>
         <FileOutput className="mr-2 h-4 w-4" />
         Export
       </ContextMenuItem>
@@ -566,7 +580,7 @@ export function InstancesView() {
   }
 
   return (
-    <div className="w-full">
+    <div className="w-full h-full flex flex-col">
       <div className="flex flex-wrap justify-between items-center gap-4 mb-6 pb-5 border-b border-border">
         <h1 className="text-3xl font-bold bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
           Minecraft Instances
@@ -630,6 +644,14 @@ export function InstancesView() {
             </DropdownMenuContent>
           </DropdownMenu>
 
+          <Button 
+            variant="outline" 
+            className="h-9"
+            onClick={() => setImportDialogOpen(true)}
+          >
+            <FileInput className="mr-2 h-4 w-4" /> Import
+          </Button>
+
           <Link to="/create-instance">
             <Button className="h-9">
               <Plus className="mr-2 h-4 w-4" /> Create Instance
@@ -639,26 +661,68 @@ export function InstancesView() {
       </div>
 
       {sortedInstances.length === 0 ? (
-        <div className="empty-state">
-          <p className="mb-4">No instances found. Create your first instance to get started!</p>
-          <Link to="/create-instance">
-            <Button>
-              <Plus className="mr-2 h-4 w-4" /> Create Instance
-            </Button>
-          </Link>
-        </div>
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <div className="flex-1 flex flex-col items-center justify-center">
+              <p className="mb-4">No instances found. Create your first instance to get started!</p>
+              <Link to="/create-instance">
+                <Button>
+                  <Plus className="mr-2 h-4 w-4" /> Create Instance
+                </Button>
+              </Link>
+            </div>
+          </ContextMenuTrigger>
+          <ContextMenuContent className="w-48">
+            <ContextMenuItem onClick={() => navigate("/create-instance")}>
+              <Plus className="mr-2 h-4 w-4" />
+              Create Instance
+            </ContextMenuItem>
+            <ContextMenuItem onClick={() => setImportDialogOpen(true)}>
+              <FileInput className="mr-2 h-4 w-4" />
+              Import Instance
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
       ) : viewMode === "Grid" ? (
-        <div className={`grid ${gridClasses} gap-4`}>
-          {sortedInstances.map((instance) => (
-            <InstanceCard key={instance.id} instance={instance} />
-          ))}
-        </div>
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <div className={`flex-1 grid ${gridClasses} gap-4 content-start`}>
+              {sortedInstances.map((instance) => (
+                <InstanceCard key={instance.id} instance={instance} />
+              ))}
+            </div>
+          </ContextMenuTrigger>
+          <ContextMenuContent className="w-48">
+            <ContextMenuItem onClick={() => navigate("/create-instance")}>
+              <Plus className="mr-2 h-4 w-4" />
+              Create Instance
+            </ContextMenuItem>
+            <ContextMenuItem onClick={() => setImportDialogOpen(true)}>
+              <FileInput className="mr-2 h-4 w-4" />
+              Import Instance
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
       ) : (
-        <div className="space-y-2">
-          {sortedInstances.map((instance) => (
-            <InstanceRow key={instance.id} instance={instance} />
-          ))}
-        </div>
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <div className="flex-1 space-y-2">
+              {sortedInstances.map((instance) => (
+                <InstanceRow key={instance.id} instance={instance} />
+              ))}
+            </div>
+          </ContextMenuTrigger>
+          <ContextMenuContent className="w-48">
+            <ContextMenuItem onClick={() => navigate("/create-instance")}>
+              <Plus className="mr-2 h-4 w-4" />
+              Create Instance
+            </ContextMenuItem>
+            <ContextMenuItem onClick={() => setImportDialogOpen(true)}>
+              <FileInput className="mr-2 h-4 w-4" />
+              Import Instance
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
       )}
 
       {/* Rename Dialog */}
@@ -742,6 +806,23 @@ export function InstancesView() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Export Instance Dialog */}
+      {selectedInstance && (
+        <ExportInstanceDialog
+          open={exportDialogOpen}
+          onOpenChange={setExportDialogOpen}
+          instanceId={selectedInstance}
+          instanceName={selectedInstanceName}
+        />
+      )}
+
+      {/* Import Instance Dialog */}
+      <ImportInstanceDialog
+        open={importDialogOpen}
+        onOpenChange={setImportDialogOpen}
+        onImportComplete={loadInstances}
+      />
     </div>
   );
 }

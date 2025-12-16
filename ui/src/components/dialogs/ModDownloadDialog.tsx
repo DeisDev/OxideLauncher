@@ -13,6 +13,10 @@ import {
   CheckCircle,
   X,
   Filter,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
 } from "lucide-react";
 import ReactMarkdown, { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -143,7 +147,16 @@ interface QueuedMod {
   dependencies: QueuedMod[];
 }
 
+interface ModSearchResponse {
+  mods: ModSearchResult[];
+  total_hits: number;
+  offset: number;
+  limit: number;
+}
+
 type SortOption = "relevance" | "downloads" | "follows" | "newest" | "updated";
+
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const;
 
 export function ModDownloadDialog({
   open,
@@ -164,6 +177,11 @@ export function ModDownloadDialog({
   const [isSearching, setIsSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalHits, setTotalHits] = useState(0);
+  const [pageSize, setPageSize] = useState<number>(25);
+  
   // Selected mod state
   const [selectedMod, setSelectedMod] = useState<ModSearchResult | null>(null);
   const [modDetails, setModDetails] = useState<ModDetails | null>(null);
@@ -178,6 +196,21 @@ export function ModDownloadDialog({
   
   // Queue state
   const [queue, setQueue] = useState<QueuedMod[]>([]);
+
+  // Helper function to check if a mod/dependency exists anywhere in the queue
+  const isModInQueue = (modId: string): boolean => {
+    // Check if it's a main mod
+    if (queue.some(q => q.id === modId)) {
+      return true;
+    }
+    // Check if it's in any mod's dependencies
+    for (const queuedMod of queue) {
+      if (queuedMod.dependencies.some(dep => dep.id === modId)) {
+        return true;
+      }
+    }
+    return false;
+  };
 
   // Custom markdown components to open links externally
   const markdownComponents: Components = useMemo(() => ({
@@ -218,50 +251,76 @@ export function ModDownloadDialog({
   // Refresh results when platform changes
   useEffect(() => {
     if (open && hasSearched) {
-      searchMods(searchQuery);
+      searchMods(searchQuery, sortBy, selectedCategories, 1);
     }
   }, [platform]);
 
   // Search mods
-  const searchMods = async (query: string, newSortBy?: SortOption, categories?: string[]) => {
+  const searchMods = async (query: string, newSortBy?: SortOption, categories?: string[], page?: number, newPageSize?: number) => {
     setIsSearching(true);
     setHasSearched(true);
     
     const effectiveSortBy = newSortBy || sortBy;
     const effectiveCategories = categories ?? selectedCategories;
+    const effectivePage = page ?? currentPage;
+    const effectivePageSize = newPageSize ?? pageSize;
+    const offset = (effectivePage - 1) * effectivePageSize;
     
     try {
-      const results = await invoke<ModSearchResult[]>("search_mods_detailed", {
+      const response = await invoke<ModSearchResponse>("search_mods_detailed", {
         query: query || "",
         minecraftVersion,
         modLoader: modLoader.toLowerCase(),
         platform,
         sortBy: effectiveSortBy,
-        limit: 50,
+        limit: effectivePageSize,
+        offset,
       });
       
       // Extract all unique categories from results
       const allCategories = new Set<string>();
-      results.forEach(mod => {
+      response.mods.forEach(mod => {
         mod.categories.forEach(cat => allCategories.add(cat));
       });
       setAvailableCategories(Array.from(allCategories).sort());
       
       // Filter by selected categories if any
       if (effectiveCategories.length > 0) {
-        const filtered = results.filter(mod =>
+        const filtered = response.mods.filter(mod =>
           effectiveCategories.some(cat => mod.categories.includes(cat))
         );
         setSearchResults(filtered);
       } else {
-        setSearchResults(results);
+        setSearchResults(response.mods);
       }
+      
+      setTotalHits(response.total_hits);
+      setCurrentPage(effectivePage);
     } catch (error) {
       console.error("Failed to search mods:", error);
       setSearchResults([]);
+      setTotalHits(0);
     } finally {
       setIsSearching(false);
     }
+  };
+  
+  // Calculate total pages
+  const totalPages = Math.ceil(totalHits / pageSize);
+  
+  // Handle page change
+  const handlePageChange = (newPage: number) => {
+    if (newPage >= 1 && newPage <= totalPages && newPage !== currentPage) {
+      setCurrentPage(newPage);
+      searchMods(searchQuery, sortBy, selectedCategories, newPage);
+    }
+  };
+  
+  // Handle page size change
+  const handlePageSizeChange = (newSize: number) => {
+    setPageSize(newSize);
+    setCurrentPage(1); // Reset to first page when changing page size
+    searchMods(searchQuery, sortBy, selectedCategories, 1, newSize);
   };
 
   // Load mod details when a mod is selected
@@ -313,7 +372,8 @@ export function ModDownloadDialog({
 
   // Handle search
   const handleSearch = () => {
-    searchMods(searchQuery);
+    setCurrentPage(1); // Reset to first page on new search
+    searchMods(searchQuery, sortBy, selectedCategories, 1);
   };
 
   // Handle platform change - just change the platform, useEffect will trigger refresh
@@ -322,13 +382,15 @@ export function ModDownloadDialog({
       setPlatform(newPlatform);
       setSelectedMod(null);
       setSelectedCategories([]); // Reset category filter on platform change
+      setCurrentPage(1); // Reset pagination on platform change
     }
   };
 
   // Handle sort change - update state and search with new sort immediately
   const handleSortChange = (newSort: SortOption) => {
     setSortBy(newSort);
-    searchMods(searchQuery, newSort);
+    setCurrentPage(1); // Reset to first page on sort change
+    searchMods(searchQuery, newSort, selectedCategories, 1);
   };
 
   // Toggle category filter
@@ -337,13 +399,15 @@ export function ModDownloadDialog({
       ? selectedCategories.filter(c => c !== category)
       : [...selectedCategories, category];
     setSelectedCategories(newCategories);
-    searchMods(searchQuery, sortBy, newCategories);
+    setCurrentPage(1); // Reset to first page on category change
+    searchMods(searchQuery, sortBy, newCategories, 1);
   };
 
   // Clear all category filters
   const clearCategoryFilters = () => {
     setSelectedCategories([]);
-    searchMods(searchQuery, sortBy, []);
+    setCurrentPage(1); // Reset to first page
+    searchMods(searchQuery, sortBy, [], 1);
   };
 
   // Quick add mod to queue (from the plus button in the list)
@@ -387,7 +451,7 @@ export function ModDownloadDialog({
               modLoader: modLoader.toLowerCase(),
             });
             
-            if (depVersions.length > 0 && !queue.some(q => q.id === dep.project_id)) {
+            if (depVersions.length > 0 && !isModInQueue(dep.project_id)) {
               dependencies.push({
                 id: dep.project_id,
                 name: depDetails.name,
@@ -445,7 +509,7 @@ export function ModDownloadDialog({
             modLoader: modLoader.toLowerCase(),
           });
           
-          if (depVersions.length > 0 && !queue.some(q => q.id === dep.project_id)) {
+          if (depVersions.length > 0 && !isModInQueue(dep.project_id)) {
             dependencies.push({
               id: dep.project_id,
               name: depDetails.name,
@@ -792,6 +856,75 @@ export function ModDownloadDialog({
                   )}
                 </div>
               </ScrollArea>
+              
+              {/* Pagination Controls */}
+              {totalHits > 0 && (
+                <div className="p-3 border-t flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">
+                      {totalHits.toLocaleString()} {totalHits === 1 ? "result" : "results"}
+                    </span>
+                    <Select
+                      value={pageSize.toString()}
+                      onValueChange={(value) => handlePageSizeChange(Number(value))}
+                    >
+                      <SelectTrigger className="h-7 w-[70px] text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PAGE_SIZE_OPTIONS.map((size) => (
+                          <SelectItem key={size} value={size.toString()}>
+                            {size}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <span className="text-xs text-muted-foreground">per page</span>
+                  </div>
+                  
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0"
+                      onClick={() => handlePageChange(1)}
+                      disabled={currentPage === 1 || isSearching}
+                    >
+                      <ChevronsLeft className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0"
+                      onClick={() => handlePageChange(currentPage - 1)}
+                      disabled={currentPage === 1 || isSearching}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <span className="text-xs px-2 min-w-[80px] text-center">
+                      Page {currentPage} of {totalPages || 1}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0"
+                      onClick={() => handlePageChange(currentPage + 1)}
+                      disabled={currentPage >= totalPages || isSearching}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0"
+                      onClick={() => handlePageChange(totalPages)}
+                      disabled={currentPage >= totalPages || isSearching}
+                    >
+                      <ChevronsRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Right Panel - Mod Details */}

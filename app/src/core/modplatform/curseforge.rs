@@ -403,6 +403,16 @@ struct CurseForgeFile {
     #[serde(rename = "downloadCount")]
     download_count: u64,
     hashes: Vec<CurseForgeHash>,
+    #[serde(default)]
+    dependencies: Vec<CurseForgeDependency>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CurseForgeDependency {
+    #[serde(rename = "modId")]
+    mod_id: u32,
+    #[serde(rename = "relationType")]
+    relation_type: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -453,6 +463,19 @@ impl CurseForgeFile {
                 _ => VersionType::Release,
             },
             platform: Platform::CurseForge,
+            dependencies: self.dependencies.into_iter().map(|d| Dependency {
+                project_id: Some(d.mod_id.to_string()),
+                version_id: None,
+                dependency_type: match d.relation_type {
+                    1 => DependencyType::Embedded,   // EmbeddedLibrary
+                    2 => DependencyType::Optional,   // OptionalDependency
+                    3 => DependencyType::Required,   // RequiredDependency
+                    4 => DependencyType::Unknown,    // Tool
+                    5 => DependencyType::Incompatible, // Incompatible
+                    6 => DependencyType::Optional,   // Include (treat as optional)
+                    _ => DependencyType::Unknown,
+                },
+            }).collect(),
         }
     }
 }

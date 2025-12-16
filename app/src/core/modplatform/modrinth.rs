@@ -337,6 +337,15 @@ struct ModrinthVersion {
     downloads: u64,
     date_published: String,
     version_type: String,
+    #[serde(default)]
+    dependencies: Vec<ModrinthDependency>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ModrinthDependency {
+    project_id: Option<String>,
+    version_id: Option<String>,
+    dependency_type: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -381,6 +390,17 @@ impl From<ModrinthVersion> for ProjectVersion {
                 _ => VersionType::Release,
             },
             platform: Platform::Modrinth,
+            dependencies: v.dependencies.into_iter().map(|d| Dependency {
+                project_id: d.project_id,
+                version_id: d.version_id,
+                dependency_type: match d.dependency_type.as_str() {
+                    "required" => DependencyType::Required,
+                    "optional" => DependencyType::Optional,
+                    "incompatible" => DependencyType::Incompatible,
+                    "embedded" => DependencyType::Embedded,
+                    _ => DependencyType::Unknown,
+                },
+            }).collect(),
         }
     }
 }

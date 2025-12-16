@@ -61,6 +61,8 @@ webbrowser = "1"
 semver = { version = "1", features = ["serde"] }
 regex = "1"
 lazy_static = "1"
+hex = "0.4"
+rust-ini = "0.21"
 
 # Image processing
 image = "0.25"

@@ -1,12 +1,16 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
-import { Search, Upload, RefreshCw, Star } from "lucide-react";
+import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
+import { Search, Upload, RefreshCw, Star, FileArchive, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Select,
   SelectContent,
@@ -86,6 +90,25 @@ export function CreateInstanceView() {
   const [searchingModpacks, setSearchingModpacks] = useState(false);
   const [selectedModpack, setSelectedModpack] = useState<ModpackResult | null>(null);
   const [selectedModpackVersion, setSelectedModpackVersion] = useState("");
+
+  // Import state
+  const [importFile, setImportFile] = useState<string | null>(null);
+  const [importFormat, setImportFormat] = useState<{ format_type: string; display_name: string } | null>(null);
+  const [importNameOverride, setImportNameOverride] = useState("");
+  const [importDetecting, setImportDetecting] = useState(false);
+  const [importImporting, setImportImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
+  const [importStatus, setImportStatus] = useState("");
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importResult, setImportResult] = useState<{
+    instance_id: string;
+    name: string;
+    minecraft_version: string;
+    mod_loader_type: string | null;
+    mod_loader_version: string | null;
+    files_to_download: number;
+    warnings: string[];
+  } | null>(null);
 
   // Load Minecraft versions on mount and when filters change
   useEffect(() => {
@@ -560,17 +583,292 @@ export function CreateInstanceView() {
     </div>
   );
 
+  // Import format badge colors
+  const formatColors: Record<string, { bg: string; text: string }> = {
+    oxide: { bg: "bg-orange-500/20", text: "text-orange-600 dark:text-orange-400" },
+    modrinth: { bg: "bg-green-500/20", text: "text-green-600 dark:text-green-400" },
+    curseforge: { bg: "bg-orange-600/20", text: "text-orange-700 dark:text-orange-300" },
+    prism: { bg: "bg-purple-500/20", text: "text-purple-600 dark:text-purple-400" },
+    unknown: { bg: "bg-red-500/20", text: "text-red-600 dark:text-red-400" },
+  };
+
+  const handleImportSelectFile = async () => {
+    try {
+      setImportError(null);
+      setImportFormat(null);
+      setImportResult(null);
+      
+      const file = await openFileDialog({
+        multiple: false,
+        filters: [
+          { name: "Instance Archives", extensions: ["oxide", "mrpack", "zip"] },
+          { name: "All Files", extensions: ["*"] },
+        ],
+      });
+
+      if (!file || Array.isArray(file)) {
+        return;
+      }
+
+      setImportFile(file);
+      setImportDetecting(true);
+
+      const formatInfo = await invoke<{ format_type: string; display_name: string }>("detect_import_format", {
+        archivePath: file,
+      });
+
+      setImportFormat(formatInfo);
+      setImportDetecting(false);
+    } catch (err) {
+      console.error("Failed to detect format:", err);
+      setImportError(String(err));
+      setImportDetecting(false);
+    }
+  };
+
+  const handleImportInstance = async () => {
+    if (!importFile) return;
+
+    try {
+      setImportError(null);
+      setImportImporting(true);
+      setImportProgress(0);
+      setImportStatus("Importing instance...");
+
+      const result = await invoke<{
+        instance_id: string;
+        name: string;
+        minecraft_version: string;
+        mod_loader_type: string | null;
+        mod_loader_version: string | null;
+        files_to_download: number;
+        warnings: string[];
+      }>("import_instance_from_file", {
+        archivePath: importFile,
+        nameOverride: importNameOverride || null,
+      });
+
+      setImportProgress(100);
+      setImportStatus("Import complete!");
+      setImportResult(result);
+
+      // Navigate to instances after delay
+      setTimeout(() => {
+        navigate("/");
+      }, 2000);
+    } catch (err) {
+      console.error("Import failed:", err);
+      setImportError(String(err));
+      setImportImporting(false);
+      setImportProgress(0);
+      setImportStatus("");
+    }
+  };
+
+  const handleImportReset = () => {
+    setImportFile(null);
+    setImportFormat(null);
+    setImportNameOverride("");
+    setImportDetecting(false);
+    setImportImporting(false);
+    setImportProgress(0);
+    setImportStatus("");
+    setImportError(null);
+    setImportResult(null);
+  };
+
   const renderImportSource = () => (
-    <div className="flex-1 flex flex-col items-center justify-center gap-4">
-      <Upload className="h-16 w-16 text-muted-foreground" />
-      <h2 className="text-xl font-semibold">Import Modpack</h2>
-      <p className="text-muted-foreground text-center max-w-md">
-        Drag and drop a modpack file here, or click to browse.
-        Supports .zip, .mrpack (Modrinth), and CurseForge modpacks.
-      </p>
-      <Button variant="outline" onClick={() => alert("File picker not implemented yet")}>
-        Browse Files
-      </Button>
+    <div className="flex-1 flex flex-col gap-6 p-4">
+      {/* Header */}
+      <div className="text-center">
+        <h2 className="text-xl font-semibold mb-2">Import Instance</h2>
+        <p className="text-muted-foreground text-sm">
+          Import instances from OxideLauncher, Modrinth (.mrpack), CurseForge, or Prism Launcher
+        </p>
+      </div>
+
+      {/* File Selection */}
+      {!importResult && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Select File</CardTitle>
+            <CardDescription>
+              Choose a modpack or instance archive to import
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={handleImportSelectFile}
+                disabled={importDetecting || importImporting}
+              >
+                {importDetecting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Detecting format...
+                  </>
+                ) : (
+                  <>
+                    <FileArchive className="mr-2 h-4 w-4" />
+                    {importFile ? "Change File" : "Select File..."}
+                  </>
+                )}
+              </Button>
+              {importFile && (
+                <Button variant="ghost" size="icon" onClick={handleImportReset}>
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+
+            {/* Selected file info */}
+            {importFile && (
+              <div className="p-3 bg-muted rounded-lg space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium truncate max-w-[300px]">
+                    {importFile.split(/[/\\]/).pop()}
+                  </span>
+                  {importFormat && (
+                    <Badge 
+                      variant="secondary"
+                      className={cn(
+                        formatColors[importFormat.format_type]?.bg,
+                        formatColors[importFormat.format_type]?.text
+                      )}
+                    >
+                      {importFormat.display_name}
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground truncate">{importFile}</p>
+              </div>
+            )}
+
+            {/* Unknown format warning */}
+            {importFormat?.format_type === "unknown" && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  Could not detect the archive format. The file may not be a valid modpack.
+                </AlertDescription>
+              </Alert>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Import Options */}
+      {importFile && importFormat && importFormat.format_type !== "unknown" && !importResult && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Import Options</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="import-name">Instance Name (optional)</Label>
+              <Input
+                id="import-name"
+                value={importNameOverride}
+                onChange={(e) => setImportNameOverride(e.target.value)}
+                placeholder="Leave empty to use name from archive"
+                disabled={importImporting}
+              />
+              <p className="text-xs text-muted-foreground">
+                Override the instance name, or leave empty to use the name from the archive
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Progress */}
+      {importImporting && !importResult && (
+        <Card>
+          <CardContent className="pt-6 space-y-4">
+            <div className="space-y-2">
+              <div className="flex justify-between text-sm">
+                <span>{importStatus}</span>
+                <span>{importProgress}%</span>
+              </div>
+              <Progress value={importProgress} />
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Error */}
+      {importError && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{importError}</AlertDescription>
+        </Alert>
+      )}
+
+      {/* Success */}
+      {importResult && (
+        <Card>
+          <CardContent className="pt-6 space-y-4">
+            <div className="flex items-center gap-3 text-green-600 dark:text-green-400">
+              <CheckCircle className="h-8 w-8" />
+              <div>
+                <h3 className="font-semibold">Import Successful!</h3>
+                <p className="text-sm text-muted-foreground">
+                  Instance "{importResult.name}" has been created
+                </p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <span className="text-muted-foreground">Minecraft Version:</span>
+                <span className="ml-2 font-medium">{importResult.minecraft_version}</span>
+              </div>
+              {importResult.mod_loader_type && (
+                <div>
+                  <span className="text-muted-foreground">Mod Loader:</span>
+                  <span className="ml-2 font-medium">
+                    {importResult.mod_loader_type} {importResult.mod_loader_version}
+                  </span>
+                </div>
+              )}
+            </div>
+            {importResult.warnings.length > 0 && (
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  {importResult.warnings.join(". ")}
+                </AlertDescription>
+              </Alert>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Actions */}
+      {!importResult && (
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={() => navigate("/")}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleImportInstance}
+            disabled={!importFile || !importFormat || importFormat.format_type === "unknown" || importImporting}
+          >
+            {importImporting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Importing...
+              </>
+            ) : (
+              <>
+                <Upload className="mr-2 h-4 w-4" />
+                Import Instance
+              </>
+            )}
+          </Button>
+        </div>
+      )}
     </div>
   );
 

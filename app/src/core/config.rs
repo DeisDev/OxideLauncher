@@ -372,7 +372,7 @@ pub struct MinecraftConfig {
     pub close_after_launch: bool,
 
     /// Show game console window
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub show_console: bool,
 
     /// Auto-close console when game exits normally
@@ -399,7 +399,7 @@ impl Default for MinecraftConfig {
             window_height: default_game_height(),
             launch_maximized: false,
             close_after_launch: false,
-            show_console: false,
+            show_console: true,
             auto_close_console: false,
             show_console_on_error: true,
             record_game_time: true,

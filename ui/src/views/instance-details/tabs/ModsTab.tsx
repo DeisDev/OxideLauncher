@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import {
   Search,
   Download,
@@ -15,6 +16,7 @@ import {
   Globe,
   Bug,
   Code,
+  Link as LinkIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -40,6 +42,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+} from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
 import type { InstanceInfo, InstalledMod } from "../types";
 import { formatFileSize } from "../utils";
@@ -216,6 +228,18 @@ export function ModsTab({ instanceId, instance }: ModsTabProps) {
     await loadInstalledMods();
   };
 
+  // Helper function to convert ArrayBuffer to base64 (handles large files)
+  const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
+    const uint8Array = new Uint8Array(buffer);
+    const chunkSize = 8192;
+    let result = '';
+    for (let i = 0; i < uint8Array.length; i += chunkSize) {
+      const chunk = uint8Array.subarray(i, Math.min(i + chunkSize, uint8Array.length));
+      result += String.fromCharCode.apply(null, Array.from(chunk));
+    }
+    return btoa(result);
+  };
+
   const processFiles = async (files: File[]) => {
     // For drag and drop, we need to read the file and save it
     for (const file of files) {
@@ -226,8 +250,7 @@ export function ModsTab({ instanceId, instance }: ModsTabProps) {
       try {
         // Convert File to ArrayBuffer, then save via Tauri
         const arrayBuffer = await file.arrayBuffer();
-        const uint8Array = new Uint8Array(arrayBuffer);
-        const base64 = btoa(String.fromCharCode(...uint8Array));
+        const base64 = arrayBufferToBase64(arrayBuffer);
         
         await invoke("add_local_mod_from_bytes", {
           instanceId,
@@ -241,6 +264,53 @@ export function ModsTab({ instanceId, instance }: ModsTabProps) {
     }
     await loadInstalledMods();
   };
+
+  // Process file paths from Tauri's drag-drop event
+  const processDroppedPaths = useCallback(async (paths: string[]) => {
+    const jarFiles = paths.filter(p => p.toLowerCase().endsWith('.jar'));
+    if (jarFiles.length === 0) {
+      alert('Only .jar files are supported for mods');
+      return;
+    }
+    
+    for (const filePath of jarFiles) {
+      try {
+        await invoke("add_local_mod", {
+          instanceId,
+          filePath,
+        });
+      } catch (error) {
+        console.error("Failed to add mod:", error);
+        alert(`Failed to add mod: ${error}`);
+      }
+    }
+    await loadInstalledMods();
+  }, [instanceId]);
+
+  // Set up Tauri drag-drop event listener
+  useEffect(() => {
+    const webview = getCurrentWebviewWindow();
+    let unlisten: (() => void) | undefined;
+
+    webview.onDragDropEvent((event) => {
+      if (event.payload.type === 'over') {
+        setIsDragging(true);
+      } else if (event.payload.type === 'drop') {
+        setIsDragging(false);
+        if (event.payload.paths && event.payload.paths.length > 0) {
+          processDroppedPaths(event.payload.paths);
+        }
+      } else if (event.payload.type === 'leave' || event.payload.type === 'cancel') {
+        setIsDragging(false);
+      }
+    }).then(fn => {
+      unlisten = fn;
+    });
+
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [processDroppedPaths]);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -415,97 +485,144 @@ export function ModsTab({ instanceId, instance }: ModsTabProps) {
                 </TableRow>
               ) : (
                 filteredMods.map((mod) => (
-                  <TableRow 
-                    key={mod.filename}
-                    className={cn(selectedMods.has(mod.filename) && "bg-muted/50")}
-                  >
-                    <TableCell>
-                      <Checkbox
-                        checked={selectedMods.has(mod.filename)}
-                        onCheckedChange={() => toggleModSelection(mod.filename)}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Switch
-                        checked={mod.enabled}
-                        onCheckedChange={() => toggleMod(mod.filename, mod.enabled)}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      {mod.icon_url ? (
-                        <img
-                          src={mod.icon_url}
-                          alt=""
-                          className="w-8 h-8 rounded object-cover"
-                        />
-                      ) : (
-                        <div className="w-8 h-8 rounded bg-muted flex items-center justify-center">
-                          <Package className="h-4 w-4 text-muted-foreground" />
-                        </div>
+                  <ContextMenu key={mod.filename}>
+                    <ContextMenuTrigger asChild>
+                      <TableRow 
+                        className={cn(selectedMods.has(mod.filename) && "bg-muted/50")}
+                      >
+                        <TableCell>
+                          <Checkbox
+                            checked={selectedMods.has(mod.filename)}
+                            onCheckedChange={() => toggleModSelection(mod.filename)}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Switch
+                            checked={mod.enabled}
+                            onCheckedChange={() => toggleMod(mod.filename, mod.enabled)}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          {mod.icon_url ? (
+                            <img
+                              src={mod.icon_url}
+                              alt=""
+                              className="w-8 h-8 rounded object-cover"
+                            />
+                          ) : (
+                            <div className="w-8 h-8 rounded bg-muted flex items-center justify-center">
+                              <Package className="h-4 w-4 text-muted-foreground" />
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className={cn(!mod.enabled && "text-muted-foreground")}>
+                            <p className="font-medium">{mod.name}</p>
+                            <p className="text-xs text-muted-foreground truncate max-w-xs">
+                              {mod.filename}
+                            </p>
+                          </div>
+                        </TableCell>
+                        <TableCell className={cn(!mod.enabled && "text-muted-foreground")}>
+                          {mod.version || "-"}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground text-sm">
+                          {mod.modified || "-"}
+                        </TableCell>
+                        <TableCell>
+                          {mod.provider && (
+                            <Badge variant="secondary" className="text-xs">
+                              {mod.provider}
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            {mod.homepage && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6"
+                                title="Homepage"
+                                onClick={() => window.open(mod.homepage!, "_blank")}
+                              >
+                                <Globe className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                            {mod.issues_url && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6"
+                                title="Issue Tracker"
+                                onClick={() => window.open(mod.issues_url!, "_blank")}
+                              >
+                                <Bug className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                            {mod.source_url && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6"
+                                title="Source Code"
+                                onClick={() => window.open(mod.source_url!, "_blank")}
+                              >
+                                <Code className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground text-sm">
+                          {formatFileSize(mod.size)}
+                        </TableCell>
+                      </TableRow>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent>
+                      <ContextMenuItem onClick={() => toggleMod(mod.filename, mod.enabled)}>
+                        {mod.enabled ? <XCircle className="mr-2 h-4 w-4" /> : <Check className="mr-2 h-4 w-4" />}
+                        {mod.enabled ? "Disable" : "Enable"}
+                      </ContextMenuItem>
+                      <ContextMenuItem 
+                        onClick={() => setDeleteModDialog(mod.filename)}
+                        className="text-destructive focus:text-destructive"
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Delete
+                      </ContextMenuItem>
+                      {(mod.homepage || mod.issues_url || mod.source_url) && (
+                        <>
+                          <ContextMenuSeparator />
+                          <ContextMenuSub>
+                            <ContextMenuSubTrigger>
+                              <LinkIcon className="mr-2 h-4 w-4" />
+                              Open URL
+                            </ContextMenuSubTrigger>
+                            <ContextMenuSubContent>
+                              {mod.homepage && (
+                                <ContextMenuItem onClick={() => window.open(mod.homepage!, "_blank")}>
+                                  <Globe className="mr-2 h-4 w-4" />
+                                  Homepage
+                                </ContextMenuItem>
+                              )}
+                              {mod.issues_url && (
+                                <ContextMenuItem onClick={() => window.open(mod.issues_url!, "_blank")}>
+                                  <Bug className="mr-2 h-4 w-4" />
+                                  Issue Tracker
+                                </ContextMenuItem>
+                              )}
+                              {mod.source_url && (
+                                <ContextMenuItem onClick={() => window.open(mod.source_url!, "_blank")}>
+                                  <Code className="mr-2 h-4 w-4" />
+                                  Source Code
+                                </ContextMenuItem>
+                              )}
+                            </ContextMenuSubContent>
+                          </ContextMenuSub>
+                        </>
                       )}
-                    </TableCell>
-                    <TableCell>
-                      <div className={cn(!mod.enabled && "text-muted-foreground")}>
-                        <p className="font-medium">{mod.name}</p>
-                        <p className="text-xs text-muted-foreground truncate max-w-xs">
-                          {mod.filename}
-                        </p>
-                      </div>
-                    </TableCell>
-                    <TableCell className={cn(!mod.enabled && "text-muted-foreground")}>
-                      {mod.version || "-"}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground text-sm">
-                      {mod.modified || "-"}
-                    </TableCell>
-                    <TableCell>
-                      {mod.provider && (
-                        <Badge variant="secondary" className="text-xs">
-                          {mod.provider}
-                        </Badge>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1">
-                        {mod.homepage && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6"
-                            title="Homepage"
-                            onClick={() => window.open(mod.homepage!, "_blank")}
-                          >
-                            <Globe className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
-                        {mod.issues_url && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6"
-                            title="Issue Tracker"
-                            onClick={() => window.open(mod.issues_url!, "_blank")}
-                          >
-                            <Bug className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
-                        {mod.source_url && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6"
-                            title="Source Code"
-                            onClick={() => window.open(mod.source_url!, "_blank")}
-                          >
-                            <Code className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right text-muted-foreground text-sm">
-                      {formatFileSize(mod.size)}
-                    </TableCell>
-                  </TableRow>
+                    </ContextMenuContent>
+                  </ContextMenu>
                 ))
               )}
             </TableBody>

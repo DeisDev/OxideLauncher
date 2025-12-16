@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { Trash2, RefreshCw, Package, FolderOpen, Download, Plus, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -98,6 +99,62 @@ export function ResourcePacksTab({ instanceId, instance }: ResourcePacksTabProps
     }
   };
 
+  // Helper function to convert ArrayBuffer to base64 (handles large files)
+  const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
+    const uint8Array = new Uint8Array(buffer);
+    const chunkSize = 8192;
+    let result = '';
+    for (let i = 0; i < uint8Array.length; i += chunkSize) {
+      const chunk = uint8Array.subarray(i, Math.min(i + chunkSize, uint8Array.length));
+      result += String.fromCharCode.apply(null, Array.from(chunk));
+    }
+    return btoa(result);
+  };
+
+  // Process dropped file paths from Tauri's drag-drop event
+  const processDroppedPaths = useCallback(async (paths: string[]) => {
+    const zipFiles = paths.filter(p => p.toLowerCase().endsWith('.zip'));
+    if (zipFiles.length === 0) {
+      alert('Only .zip files are supported for resource packs');
+      return;
+    }
+    
+    for (const filePath of zipFiles) {
+      try {
+        await invoke("add_local_resource_pack", { instanceId, filePath });
+      } catch (error) {
+        console.error("Failed to add resource pack:", error);
+        alert(`Failed to add resource pack: ${error}`);
+      }
+    }
+    await loadResourcePacks();
+  }, [instanceId]);
+
+  // Set up Tauri drag-drop event listener
+  useEffect(() => {
+    const webview = getCurrentWebviewWindow();
+    let unlisten: (() => void) | undefined;
+
+    webview.onDragDropEvent((event) => {
+      if (event.payload.type === 'over') {
+        setIsDragging(true);
+      } else if (event.payload.type === 'drop') {
+        setIsDragging(false);
+        if (event.payload.paths && event.payload.paths.length > 0) {
+          processDroppedPaths(event.payload.paths);
+        }
+      } else if (event.payload.type === 'leave' || event.payload.type === 'cancel') {
+        setIsDragging(false);
+      }
+    }).then(fn => {
+      unlisten = fn;
+    });
+
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [processDroppedPaths]);
+
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -128,12 +185,29 @@ export function ResourcePacksTab({ instanceId, instance }: ResourcePacksTabProps
     );
     
     if (zipFiles.length === 0) {
-      alert("Please drop .zip files only");
+      // Files might come from Tauri event instead
       return;
     }
     
-    alert("Drag and drop is not fully supported in web context. Please use the 'Add File' button to import resource packs.");
-  }, []);
+    // Process each file (fallback for HTML5 drag-drop)
+    for (const file of zipFiles) {
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const base64 = arrayBufferToBase64(arrayBuffer);
+        
+        await invoke("add_local_resource_pack_from_bytes", {
+          instanceId,
+          filename: file.name,
+          data: base64,
+        });
+      } catch (error) {
+        console.error("Failed to add resource pack:", error);
+        alert(`Failed to add ${file.name}: ${error}`);
+      }
+    }
+    
+    await loadResourcePacks();
+  }, [instanceId]);
 
   return (
     <>

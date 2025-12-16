@@ -172,6 +172,22 @@ impl ModloaderInstaller for QuiltInstaller {
         profile.main_class = quilt_profile.launcher_meta.main_class.client().to_string();
         debug!("Profile main class set to: {}", profile.main_class);
 
+        // Add the quilt-loader itself (this is critical and not included in the libraries list!)
+        let loader_maven = format!("org.quiltmc:quilt-loader:{}", loader_version);
+        let loader_path = super::profile::maven_to_path(&loader_maven);
+        debug!("Adding quilt-loader library: {} -> {}", loader_maven, loader_path);
+        
+        let quilt_loader = ModloaderLibrary {
+            name: loader_maven,
+            url: Some(format!("https://maven.quiltmc.org/repository/release/{}", loader_path)),
+            sha1: None,
+            size: None,
+            path: None,
+            natives: None,
+            rules: Vec::new(),
+        };
+        profile.libraries.push(quilt_loader);
+
         // Add hashed library (Quilt's mappings)
         if let Some(hashed) = &quilt_profile.hashed {
             let hashed_path = super::profile::maven_to_path(&hashed.maven);

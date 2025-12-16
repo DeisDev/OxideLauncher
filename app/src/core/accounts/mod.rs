@@ -14,6 +14,7 @@ mod types;
 mod list;
 mod microsoft;
 mod offline;
+pub mod skins;
 
 pub use types::*;
 pub use list::AccountList;

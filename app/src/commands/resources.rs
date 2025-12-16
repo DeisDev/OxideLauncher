@@ -367,6 +367,14 @@ pub struct ResourceGalleryImage {
     pub description: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ResourceSearchResponse {
+    pub resources: Vec<ResourceSearchResult>,
+    pub total_hits: u32,
+    pub offset: u32,
+    pub limit: u32,
+}
+
 /// Search for resource packs
 #[tauri::command]
 pub async fn search_resource_packs(
@@ -375,8 +383,9 @@ pub async fn search_resource_packs(
     platform: String,
     sort_by: String,
     limit: u32,
-) -> Result<Vec<ResourceSearchResult>, String> {
-    search_resources(query, minecraft_version, platform, sort_by, limit, ResourceType::ResourcePack).await
+    offset: Option<u32>,
+) -> Result<ResourceSearchResponse, String> {
+    search_resources(query, minecraft_version, platform, sort_by, limit, offset, ResourceType::ResourcePack).await
 }
 
 /// Search for shader packs
@@ -387,8 +396,9 @@ pub async fn search_shader_packs(
     platform: String,
     sort_by: String,
     limit: u32,
-) -> Result<Vec<ResourceSearchResult>, String> {
-    search_resources(query, minecraft_version, platform, sort_by, limit, ResourceType::ShaderPack).await
+    offset: Option<u32>,
+) -> Result<ResourceSearchResponse, String> {
+    search_resources(query, minecraft_version, platform, sort_by, limit, offset, ResourceType::ShaderPack).await
 }
 
 /// Internal search function for resources
@@ -398,8 +408,11 @@ async fn search_resources(
     platform: String,
     sort_by: String,
     limit: u32,
+    offset: Option<u32>,
     resource_type: ResourceType,
-) -> Result<Vec<ResourceSearchResult>, String> {
+) -> Result<ResourceSearchResponse, String> {
+    let offset_val = offset.unwrap_or(0);
+    
     let sort = match sort_by.as_str() {
         "relevance" => SortOrder::Relevance,
         "downloads" => SortOrder::Downloads,
@@ -417,7 +430,7 @@ async fn search_resources(
         loaders: vec![],
         sort,
         limit,
-        offset: 0,
+        offset: offset_val,
     };
     
     match platform.to_lowercase().as_str() {
@@ -431,21 +444,26 @@ async fn search_resources(
                 .await
                 .map_err(|e| format!("Failed to search CurseForge: {}", e))?;
             
-            Ok(results.hits.into_iter().map(|hit| ResourceSearchResult {
-                id: hit.id,
-                slug: hit.slug,
-                name: hit.title,
-                description: hit.description,
-                author: hit.author,
-                downloads: hit.downloads,
-                follows: hit.follows,
-                icon_url: hit.icon_url,
-                project_type: format!("{:?}", hit.resource_type),
-                platform: "curseforge".to_string(),
-                categories: hit.categories,
-                date_created: hit.date_created.to_rfc3339(),
-                date_modified: hit.date_modified.to_rfc3339(),
-            }).collect())
+            Ok(ResourceSearchResponse {
+                resources: results.hits.into_iter().map(|hit| ResourceSearchResult {
+                    id: hit.id,
+                    slug: hit.slug,
+                    name: hit.title,
+                    description: hit.description,
+                    author: hit.author,
+                    downloads: hit.downloads,
+                    follows: hit.follows,
+                    icon_url: hit.icon_url,
+                    project_type: format!("{:?}", hit.resource_type),
+                    platform: "curseforge".to_string(),
+                    categories: hit.categories,
+                    date_created: hit.date_created.to_rfc3339(),
+                    date_modified: hit.date_modified.to_rfc3339(),
+                }).collect(),
+                total_hits: results.total_hits,
+                offset: results.offset,
+                limit: results.limit,
+            })
         },
         _ => {
             let client = ModrinthClient::new();
@@ -454,21 +472,26 @@ async fn search_resources(
                 .await
                 .map_err(|e| format!("Failed to search Modrinth: {}", e))?;
             
-            Ok(results.hits.into_iter().map(|hit| ResourceSearchResult {
-                id: hit.id,
-                slug: hit.slug,
-                name: hit.title,
-                description: hit.description,
-                author: hit.author,
-                downloads: hit.downloads,
-                follows: hit.follows,
-                icon_url: hit.icon_url,
-                project_type: format!("{:?}", hit.resource_type),
-                platform: "modrinth".to_string(),
-                categories: hit.categories,
-                date_created: hit.date_created.to_rfc3339(),
-                date_modified: hit.date_modified.to_rfc3339(),
-            }).collect())
+            Ok(ResourceSearchResponse {
+                resources: results.hits.into_iter().map(|hit| ResourceSearchResult {
+                    id: hit.id,
+                    slug: hit.slug,
+                    name: hit.title,
+                    description: hit.description,
+                    author: hit.author,
+                    downloads: hit.downloads,
+                    follows: hit.follows,
+                    icon_url: hit.icon_url,
+                    project_type: format!("{:?}", hit.resource_type),
+                    platform: "modrinth".to_string(),
+                    categories: hit.categories,
+                    date_created: hit.date_created.to_rfc3339(),
+                    date_modified: hit.date_modified.to_rfc3339(),
+                }).collect(),
+                total_hits: results.total_hits,
+                offset: results.offset,
+                limit: results.limit,
+            })
         }
     }
 }
@@ -821,6 +844,72 @@ pub async fn add_local_shader_pack(
     let dest = shaderpacks_dir.join(filename);
     
     std::fs::copy(source, dest).map_err(|e| format!("Failed to copy file: {}", e))?;
+    
+    Ok(())
+}
+
+/// Add a local resource pack from bytes (for drag and drop)
+#[tauri::command]
+pub async fn add_local_resource_pack_from_bytes(
+    state: State<'_, AppState>,
+    instance_id: String,
+    filename: String,
+    data: String,
+) -> Result<(), String> {
+    use base64::{Engine as _, engine::general_purpose};
+    
+    let instance = {
+        let instances = state.instances.lock().unwrap();
+        instances.iter()
+            .find(|i| i.id == instance_id)
+            .ok_or_else(|| "Instance not found".to_string())?
+            .clone()
+    };
+    
+    let resourcepacks_dir = instance.game_dir().join("resourcepacks");
+    std::fs::create_dir_all(&resourcepacks_dir).map_err(|e| e.to_string())?;
+    
+    // Decode base64 data
+    let bytes = general_purpose::STANDARD.decode(data)
+        .map_err(|e| format!("Failed to decode file data: {}", e))?;
+    
+    let dest = resourcepacks_dir.join(&filename);
+    
+    std::fs::write(dest, bytes)
+        .map_err(|e| format!("Failed to write resource pack file: {}", e))?;
+    
+    Ok(())
+}
+
+/// Add a local shader pack from bytes (for drag and drop)
+#[tauri::command]
+pub async fn add_local_shader_pack_from_bytes(
+    state: State<'_, AppState>,
+    instance_id: String,
+    filename: String,
+    data: String,
+) -> Result<(), String> {
+    use base64::{Engine as _, engine::general_purpose};
+    
+    let instance = {
+        let instances = state.instances.lock().unwrap();
+        instances.iter()
+            .find(|i| i.id == instance_id)
+            .ok_or_else(|| "Instance not found".to_string())?
+            .clone()
+    };
+    
+    let shaderpacks_dir = instance.game_dir().join("shaderpacks");
+    std::fs::create_dir_all(&shaderpacks_dir).map_err(|e| e.to_string())?;
+    
+    // Decode base64 data
+    let bytes = general_purpose::STANDARD.decode(data)
+        .map_err(|e| format!("Failed to decode file data: {}", e))?;
+    
+    let dest = shaderpacks_dir.join(&filename);
+    
+    std::fs::write(dest, bytes)
+        .map_err(|e| format!("Failed to write shader pack file: {}", e))?;
     
     Ok(())
 }

@@ -277,6 +277,8 @@ impl LaunchGameStep {
             .replace("${launcher_version}", env!("CARGO_PKG_VERSION"))
             .replace("${classpath_separator}", if cfg!(target_os = "windows") { ";" } else { ":" })
             .replace("${library_directory}", &context.libraries_dir.to_string_lossy())
+            // Forge-specific: ${version_name} is used in ignoreList to exclude the client JAR
+            .replace("${version_name}", &context.instance.minecraft_version)
     }
     
     /// Substitute game argument variables

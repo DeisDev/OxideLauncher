@@ -107,6 +107,38 @@ export interface AccountInfo {
   last_used: string | null;
 }
 
+// Skin Management Types
+export interface SkinInfoResponse {
+  id: string;
+  url: string;
+  variant: "slim" | "classic";
+  is_active: boolean;
+}
+
+export interface CapeInfoResponse {
+  id: string;
+  url: string;
+  alias: string | null;
+  is_active: boolean;
+}
+
+export interface PlayerProfileResponse {
+  id: string;
+  name: string;
+  skins: SkinInfoResponse[];
+  capes: CapeInfoResponse[];
+  active_skin: SkinInfoResponse | null;
+  active_cape: CapeInfoResponse | null;
+}
+
+export interface FetchedSkinResponse {
+  uuid: string;
+  username: string;
+  skin_url: string | null;
+  skin_variant: "slim" | "classic";
+  cape_url: string | null;
+}
+
 export interface DeviceCodeInfo {
   device_code: string;
   user_code: string;

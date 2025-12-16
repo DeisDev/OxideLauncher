@@ -9,6 +9,7 @@ import { JavaSettings } from "./JavaSettings";
 import { MinecraftSettings } from "./MinecraftSettings";
 import { DownloadSettings } from "./DownloadSettings";
 import { AdvancedSettings } from "./AdvancedSettings";
+import { useConfig } from "@/hooks/useConfig";
 import type { Config } from "./types";
 
 type SettingsTab = "launcher" | "java" | "minecraft" | "downloads" | "advanced";
@@ -78,6 +79,7 @@ export function SettingsLayout() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<SettingsTab>("launcher");
   const saveTimeoutRef = useRef<number | null>(null);
+  const { setConfig: setGlobalConfig } = useConfig();
 
   useEffect(() => {
     loadConfig();
@@ -94,7 +96,7 @@ export function SettingsLayout() {
     }
   };
 
-  // Auto-save with debounce
+  // Auto-save with debounce and sync to global config
   const saveConfig = useCallback(async (newConfig: Config) => {
     if (saveTimeoutRef.current) {
       window.clearTimeout(saveTimeoutRef.current);
@@ -103,11 +105,13 @@ export function SettingsLayout() {
     saveTimeoutRef.current = window.setTimeout(async () => {
       try {
         await invoke("update_config", { config: newConfig });
+        // Sync to global config provider so Layout and other components update
+        setGlobalConfig(newConfig as import("@/hooks/useConfig").Config);
       } catch (error) {
         console.error("Failed to save config:", error);
       }
     }, 300);
-  }, []);
+  }, [setGlobalConfig]);
 
   // Wrapper for setConfig that auto-saves
   const setConfigWithSave: React.Dispatch<React.SetStateAction<Config | null>> = useCallback((action) => {

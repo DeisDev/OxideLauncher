@@ -10,6 +10,8 @@ import {
   Copy,
   ExternalLink,
   AlertCircle,
+  Palette,
+  Star,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -36,6 +38,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { SkinManagementDialog } from "@/components/dialogs";
 import { AccountInfo, DeviceCodeInfo, AuthProgressEventType } from "@/types";
 
 export function AccountsView() {
@@ -49,6 +52,10 @@ export function AccountsView() {
   const [error, setError] = useState<string | null>(null);
   const [refreshingAccount, setRefreshingAccount] = useState<string | null>(null);
   const [isMsaConfigured, setIsMsaConfigured] = useState(false);
+
+  // Skin management state
+  const [skinDialogOpen, setSkinDialogOpen] = useState(false);
+  const [skinDialogAccount, setSkinDialogAccount] = useState<AccountInfo | null>(null);
 
   // Microsoft login state
   const [deviceCode, setDeviceCode] = useState<DeviceCodeInfo | null>(null);
@@ -280,6 +287,20 @@ export function AccountsView() {
   const openDeleteDialog = (accountId: string) => {
     setSelectedAccount(accountId);
     setDeleteDialogOpen(true);
+  };
+
+  const openSkinDialog = (account: AccountInfo) => {
+    setSkinDialogAccount(account);
+    setSkinDialogOpen(true);
+  };
+
+  const setDefaultAccount = async (accountId: string) => {
+    try {
+      await invoke("set_default_account", { accountId });
+      loadAccounts();
+    } catch (error) {
+      setError(String(error));
+    }
   };
 
   const getSkinAvatar = (account: AccountInfo) => {
@@ -521,28 +542,48 @@ export function AccountsView() {
                 </div>
                 <div className="flex gap-2">
                   {account.account_type === "Microsoft" && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => refreshAccount(account.id)}
-                      disabled={refreshingAccount === account.id}
-                      title="Refresh account tokens"
-                    >
-                      {refreshingAccount === account.id ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <RefreshCw className="h-4 w-4" />
-                      )}
-                    </Button>
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openSkinDialog(account)}
+                        title="Manage skin"
+                      >
+                        <Palette className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => refreshAccount(account.id)}
+                        disabled={refreshingAccount === account.id}
+                        title="Refresh account tokens"
+                      >
+                        {refreshingAccount === account.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </>
                   )}
                   {!account.is_active && (
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => setActiveAccount(account.id)}
-                    >
-                      <CheckCircle className="mr-2 h-4 w-4" /> Set Active
-                    </Button>
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setDefaultAccount(account.id)}
+                        title="Set as default account"
+                      >
+                        <Star className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setActiveAccount(account.id)}
+                      >
+                        <CheckCircle className="mr-2 h-4 w-4" /> Set Active
+                      </Button>
+                    </>
                   )}
                   <Button
                     variant="destructive"
@@ -579,6 +620,16 @@ export function AccountsView() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Skin Management Dialog */}
+      {skinDialogAccount && (
+        <SkinManagementDialog
+          open={skinDialogOpen}
+          onOpenChange={setSkinDialogOpen}
+          account={skinDialogAccount}
+          onAccountUpdated={loadAccounts}
+        />
+      )}
     </div>
   );
 }

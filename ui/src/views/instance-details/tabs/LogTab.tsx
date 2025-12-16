@@ -1,5 +1,6 @@
 import { useRef, useEffect } from "react";
-import { Copy, Upload, Trash2, Search, X } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
+import { Copy, Upload, Trash2, Search, X, FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -8,6 +9,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
 interface LogTabProps {
+  instanceId?: string;
   logContent: string[];
   setLogContent: (logs: string[]) => void;
   searchTerm: string;
@@ -19,6 +21,7 @@ interface LogTabProps {
 }
 
 export function LogTab({
+  instanceId,
   logContent,
   setLogContent,
   searchTerm,
@@ -48,6 +51,15 @@ export function LogTab({
     setLogContent([]);
   };
 
+  const openLogsFolder = async () => {
+    if (!instanceId) return;
+    try {
+      await invoke("open_instance_logs_folder", { instanceId });
+    } catch (error) {
+      console.error("Failed to open logs folder:", error);
+    }
+  };
+
   const filteredLogs = searchTerm
     ? logContent.filter((line) =>
         line.toLowerCase().includes(searchTerm.toLowerCase())
@@ -62,6 +74,9 @@ export function LogTab({
         </Button>
         <Button variant="outline" size="sm" onClick={uploadLogs}>
           <Upload className="mr-2 h-4 w-4" /> Upload
+        </Button>
+        <Button variant="outline" size="sm" onClick={openLogsFolder} disabled={!instanceId}>
+          <FolderOpen className="mr-2 h-4 w-4" /> Open Folder
         </Button>
         <Button variant="destructive" size="sm" onClick={clearLogs}>
           <Trash2 className="mr-2 h-4 w-4" /> Clear

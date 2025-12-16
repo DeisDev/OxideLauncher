@@ -9,12 +9,17 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Child;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 /// Running Minecraft process information
 pub struct RunningProcess {
     /// The child process - wrapped in Arc<Mutex<>> since we got it from the launch task
     pub child: Arc<Mutex<Child>>,
     pub logs: Arc<Mutex<Vec<String>>>,
+    /// Time when the game was launched
+    pub launch_time: Instant,
+    /// Exit code when process exits (None if still running or not checked yet)
+    pub exit_code: Option<i32>,
 }
 
 /// Application state shared across all commands
