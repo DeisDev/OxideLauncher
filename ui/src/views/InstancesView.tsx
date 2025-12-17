@@ -4,8 +4,9 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   Plus, Play, Trash2, Info, Pencil, Folder, Copy, FileOutput, FileInput,
   Image, Settings, Square, FolderTree, Link as LinkIcon, Feather,
-  ArrowUpDown, Grid, List, Clock
+  ArrowUpDown, Grid, List, Clock, ChevronDown, ChevronRight
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 // Mod loader icon paths (relative to public or using URL constructor)
 const GrassIcon = new URL("../../art/grass.svg", import.meta.url).href;
@@ -56,7 +57,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useConfig } from "@/hooks/useConfig";
-import { ExportInstanceDialog, ImportInstanceDialog } from "@/components/dialogs";
+import { ExportInstanceDialog } from "@/components/dialogs";
 
 interface InstanceInfo {
   id: string;
@@ -141,11 +142,26 @@ export function InstancesView() {
   const [groupDialogOpen, setGroupDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
-  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [shortcutDialogOpen, setShortcutDialogOpen] = useState(false);
   const [selectedInstance, setSelectedInstance] = useState<string | null>(null);
   const [selectedInstanceName, setSelectedInstanceName] = useState<string>("");
   const [renameName, setRenameName] = useState("");
   const [groupName, setGroupName] = useState("");
+  
+  // Drag and drop state
+  const [draggedInstance, setDraggedInstance] = useState<string | null>(null);
+  const [dropTargetGroup, setDropTargetGroup] = useState<string | null>(null);
+
+  // Get existing groups for dropdown
+  const existingGroups = useMemo(() => {
+    const groups = new Set<string>();
+    for (const instance of instances) {
+      if (instance.group) {
+        groups.add(instance.group);
+      }
+    }
+    return Array.from(groups).sort();
+  }, [instances]);
 
   useEffect(() => {
     loadInstances();
@@ -230,6 +246,60 @@ export function InstancesView() {
     }
   };
 
+  // Drag and drop handlers
+  const handleDragStart = (e: React.DragEvent, instanceId: string) => {
+    setDraggedInstance(instanceId);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", instanceId);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedInstance(null);
+    setDropTargetGroup(null);
+  };
+
+  const handleDragOver = (e: React.DragEvent, groupName: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (dropTargetGroup !== groupName) {
+      setDropTargetGroup(groupName);
+    }
+  };
+
+  const handleDragLeave = () => {
+    setDropTargetGroup(null);
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetGroup: string) => {
+    e.preventDefault();
+    const instanceId = e.dataTransfer.getData("text/plain");
+    
+    if (!instanceId) return;
+    
+    // Find the instance to check its current group
+    const instance = instances.find(i => i.id === instanceId);
+    if (!instance) return;
+    
+    // Determine the new group value
+    const newGroup = targetGroup === "Ungrouped" ? null : targetGroup;
+    
+    // Only update if the group is different
+    if (instance.group !== newGroup && (instance.group || null) !== newGroup) {
+      try {
+        await invoke("change_instance_group", {
+          instanceId,
+          group: newGroup,
+        });
+        loadInstances();
+      } catch (error) {
+        console.error("Failed to change group:", error);
+      }
+    }
+    
+    setDraggedInstance(null);
+    setDropTargetGroup(null);
+  };
+
   const handleOpenFolder = async (instanceId: string) => {
     try {
       await invoke("open_instance_folder", { instanceId });
@@ -238,12 +308,21 @@ export function InstancesView() {
     }
   };
 
-  const handleCreateShortcut = async (instanceId: string) => {
+  const handleCreateShortcut = async (instanceId: string, location: "desktop" | "start_menu") => {
     try {
-      await invoke("create_instance_shortcut", { instanceId });
+      await invoke("create_instance_shortcut", { instanceId, location });
+      setShortcutDialogOpen(false);
+      setSelectedInstance(null);
     } catch (error) {
       console.error("Failed to create shortcut:", error);
+      alert("Failed to create shortcut: " + error);
     }
+  };
+
+  const openShortcutDialog = (instance: InstanceInfo) => {
+    setSelectedInstance(instance.id);
+    setSelectedInstanceName(instance.name);
+    setShortcutDialogOpen(true);
   };
 
   const handleKill = async (instanceId: string) => {
@@ -322,6 +401,47 @@ export function InstancesView() {
     return sorted;
   }, [instances, sortBy, sortAsc]);
 
+  // Group sorted instances by their group property
+  const groupedInstances = useMemo(() => {
+    const groups: { [key: string]: InstanceInfo[] } = {};
+    
+    for (const instance of sortedInstances) {
+      const groupKey = instance.group || "Ungrouped";
+      if (!groups[groupKey]) {
+        groups[groupKey] = [];
+      }
+      groups[groupKey].push(instance);
+    }
+    
+    // Sort group names, keeping "Ungrouped" at the end
+    const sortedGroupNames = Object.keys(groups).sort((a, b) => {
+      if (a === "Ungrouped") return 1;
+      if (b === "Ungrouped") return -1;
+      return a.localeCompare(b);
+    });
+    
+    return sortedGroupNames.map(name => ({
+      name,
+      instances: groups[name],
+      isUngrouped: name === "Ungrouped",
+    }));
+  }, [sortedInstances]);
+
+  // Collapsed groups state
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+
+  const toggleGroupCollapse = (groupName: string) => {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(groupName)) {
+        next.delete(groupName);
+      } else {
+        next.add(groupName);
+      }
+      return next;
+    });
+  };
+
   const getSortLabel = (sort: string) => {
     switch (sort) {
       case "name": return "Name";
@@ -373,37 +493,58 @@ export function InstancesView() {
   // Instance card component for grid view
   const InstanceCard = ({ instance }: { instance: InstanceInfo }) => {
     const loaderInfo = getModLoaderIcon(instance.mod_loader);
+    
+    // Color coding for mod loaders
+    const getLoaderColor = (loader: string) => {
+      switch (loader.toLowerCase()) {
+        case "fabric": return "text-amber-600 dark:text-amber-400";
+        case "forge": return "text-blue-600 dark:text-blue-400";
+        case "neoforge": return "text-orange-600 dark:text-orange-400";
+        case "quilt": return "text-purple-600 dark:text-purple-400";
+        case "liteloader": return "text-cyan-600 dark:text-cyan-400";
+        default: return "text-muted-foreground";
+      }
+    };
+    
     return (
       <ContextMenu>
-        <ContextMenuTrigger>
-          <Card className="overflow-hidden cursor-pointer transition-all hover:-translate-y-1 hover:shadow-xl hover:border-primary/50 h-full flex flex-col">
+        <ContextMenuTrigger asChild>
+          <Card 
+            className={cn(
+              "overflow-hidden cursor-pointer transition-all hover:shadow-xl hover:border-primary/50 h-full flex flex-col cursor-grab active:cursor-grabbing",
+              draggedInstance === instance.id && "opacity-50 scale-95"
+            )}
+            draggable
+            onDragStart={(e) => handleDragStart(e, instance.id)}
+            onDragEnd={handleDragEnd}
+          >
             {/* Fixed height image container */}
-            <div className="h-28 flex items-center justify-center bg-gradient-to-br from-muted to-card overflow-hidden flex-shrink-0">
+            <div className="h-24 sm:h-28 flex items-center justify-center bg-gradient-to-br from-muted to-card overflow-hidden flex-shrink-0">
               {instance.icon && instance.icon !== "default" ? (
                 <img
                   src={instance.icon}
                   alt={instance.name}
-                  className="w-full h-full object-cover transition-transform hover:scale-105"
+                  className="w-full h-full object-cover"
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/10 to-primary/5">
                   <img
                     src={GrassIcon}
                     alt="Minecraft"
-                    className="h-14 w-14 object-contain opacity-80"
+                    className="h-10 w-10 sm:h-14 sm:w-14 object-contain opacity-80"
                   />
                 </div>
               )}
             </div>
             {/* Fixed height content container */}
-            <CardContent className="p-3 flex flex-col flex-1">
-              <h3 className="font-semibold text-sm mb-1 truncate" title={instance.name}>
+            <CardContent className="p-2 sm:p-3 flex flex-col flex-1">
+              <h3 className="font-semibold text-xs sm:text-sm mb-1 truncate" title={instance.name}>
                 {instance.name}
               </h3>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
                 {instance.minecraft_version}
               </p>
-              <div className="flex items-center gap-1 text-xs text-muted-foreground">
+              <div className={cn("flex items-center gap-1 text-xs", getLoaderColor(instance.mod_loader))}>
                 {loaderInfo.isLucide ? (
                   <Feather className="h-3 w-3 flex-shrink-0" />
                 ) : loaderInfo.icon && instance.mod_loader !== "Vanilla" ? (
@@ -426,7 +567,7 @@ export function InstancesView() {
               <div className="flex gap-1 mt-auto pt-2">
                 <Button
                   size="sm"
-                  className="h-7 text-xs px-2 flex-1"
+                  className="h-6 sm:h-7 text-xs px-2 flex-1"
                   onClick={(e) => {
                     e.stopPropagation();
                     launchInstance(instance.id);
@@ -435,7 +576,7 @@ export function InstancesView() {
                   <Play className="mr-1 h-3 w-3" /> Play
                 </Button>
                 <Link to={`/instance/${instance.id}`} onClick={(e) => e.stopPropagation()}>
-                  <Button size="sm" variant="secondary" className="h-7 px-2">
+                  <Button size="sm" variant="secondary" className="h-6 sm:h-7 px-2">
                     <Info className="h-3 w-3" />
                   </Button>
                 </Link>
@@ -451,10 +592,31 @@ export function InstancesView() {
   // Instance row component for list view
   const InstanceRow = ({ instance }: { instance: InstanceInfo }) => {
     const loaderInfo = getModLoaderIcon(instance.mod_loader);
+    
+    // Color coding for mod loaders
+    const getLoaderColor = (loader: string) => {
+      switch (loader.toLowerCase()) {
+        case "fabric": return "text-amber-600 dark:text-amber-400";
+        case "forge": return "text-blue-600 dark:text-blue-400";
+        case "neoforge": return "text-orange-600 dark:text-orange-400";
+        case "quilt": return "text-purple-600 dark:text-purple-400";
+        case "liteloader": return "text-cyan-600 dark:text-cyan-400";
+        default: return "text-muted-foreground";
+      }
+    };
+    
     return (
       <ContextMenu>
-        <ContextMenuTrigger>
-          <div className="flex items-center gap-4 p-3 rounded-lg border bg-card hover:bg-accent/50 transition-colors cursor-pointer">
+        <ContextMenuTrigger asChild>
+          <div 
+            className={cn(
+              "flex items-center gap-4 p-3 rounded-lg border bg-card hover:bg-accent/50 transition-colors cursor-grab active:cursor-grabbing",
+              draggedInstance === instance.id && "opacity-50 scale-95"
+            )}
+            draggable
+            onDragStart={(e) => handleDragStart(e, instance.id)}
+            onDragEnd={handleDragEnd}
+          >
             {/* Icon */}
             <div className="h-12 w-12 flex-shrink-0 rounded-lg overflow-hidden bg-gradient-to-br from-muted to-card flex items-center justify-center">
               {instance.icon && instance.icon !== "default" ? (
@@ -475,9 +637,9 @@ export function InstancesView() {
             {/* Info */}
             <div className="flex-1 min-w-0">
               <h3 className="font-semibold text-sm truncate">{instance.name}</h3>
-              <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                <span>{instance.minecraft_version}</span>
-                <span className="flex items-center gap-1">
+              <div className="flex items-center gap-3 text-xs">
+                <span className="text-emerald-600 dark:text-emerald-400 font-medium">{instance.minecraft_version}</span>
+                <span className={cn("flex items-center gap-1", getLoaderColor(instance.mod_loader))}>
                   {loaderInfo.isLucide ? (
                     <Feather className="h-3 w-3" />
                   ) : loaderInfo.icon && instance.mod_loader !== "Vanilla" ? (
@@ -486,12 +648,12 @@ export function InstancesView() {
                   {instance.mod_loader !== "Vanilla" ? instance.mod_loader : "Vanilla"}
                 </span>
                 {showGameTime && (
-                  <span className="flex items-center gap-1">
+                  <span className="flex items-center gap-1 text-muted-foreground">
                     <Clock className="h-3 w-3" />
                     {formatPlayTime(instance.total_played_seconds)}
                   </span>
                 )}
-                <span>Last played: {formatLastPlayed(instance.last_played)}</span>
+                <span className="text-muted-foreground">Last played: {formatLastPlayed(instance.last_played)}</span>
               </div>
             </div>
             
@@ -560,7 +722,7 @@ export function InstancesView() {
         <Copy className="mr-2 h-4 w-4" />
         Copy
       </ContextMenuItem>
-      <ContextMenuItem onClick={() => handleCreateShortcut(instance.id)}>
+      <ContextMenuItem onClick={() => openShortcutDialog(instance)}>
         <LinkIcon className="mr-2 h-4 w-4" />
         Create Shortcut
       </ContextMenuItem>
@@ -580,18 +742,18 @@ export function InstancesView() {
   }
 
   return (
-    <div className="w-full h-full flex flex-col">
-      <div className="flex flex-wrap justify-between items-center gap-4 mb-6 pb-5 border-b border-border">
-        <h1 className="text-3xl font-bold bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
+    <div className="w-full h-full flex flex-col overflow-hidden">
+      <div className="flex flex-col sm:flex-row flex-wrap justify-between items-start sm:items-center gap-3 mb-4 pb-4 border-b border-border flex-shrink-0">
+        <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
           Minecraft Instances
         </h1>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {/* View Mode Toggle */}
           <div className="flex border rounded-lg overflow-hidden">
             <Button
               variant={viewMode === "Grid" ? "default" : "ghost"}
               size="sm"
-              className="rounded-none h-9"
+              className="rounded-none h-8 sm:h-9 px-2 sm:px-3"
               onClick={() => handleViewModeChange("Grid")}
             >
               <Grid className="h-4 w-4" />
@@ -599,7 +761,7 @@ export function InstancesView() {
             <Button
               variant={viewMode === "List" ? "default" : "ghost"}
               size="sm"
-              className="rounded-none h-9"
+              className="rounded-none h-8 sm:h-9 px-2 sm:px-3"
               onClick={() => handleViewModeChange("List")}
             >
               <List className="h-4 w-4" />
@@ -609,7 +771,7 @@ export function InstancesView() {
           {/* Grid Size (only in grid view) */}
           {viewMode === "Grid" && (
             <Select value={gridSize} onValueChange={handleGridSizeChange}>
-              <SelectTrigger className="w-28 h-9">
+              <SelectTrigger className="w-24 sm:w-28 h-8 sm:h-9 text-xs sm:text-sm">
                 <SelectValue placeholder="Size" />
               </SelectTrigger>
               <SelectContent>
@@ -623,9 +785,9 @@ export function InstancesView() {
           {/* Sort Dropdown */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="h-9">
-                <ArrowUpDown className="mr-2 h-4 w-4" />
-                {getSortLabel(sortBy)} {sortAsc ? "↑" : "↓"}
+              <Button variant="outline" size="sm" className="h-8 sm:h-9 text-xs sm:text-sm">
+                <ArrowUpDown className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden sm:inline">{getSortLabel(sortBy)}</span> {sortAsc ? "↑" : "↓"}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -646,15 +808,17 @@ export function InstancesView() {
 
           <Button 
             variant="outline" 
-            className="h-9"
-            onClick={() => setImportDialogOpen(true)}
+            className="h-8 sm:h-9 text-xs sm:text-sm"
+            onClick={() => navigate("/create-instance?source=import")}
           >
-            <FileInput className="mr-2 h-4 w-4" /> Import
+            <FileInput className="h-3 w-3 sm:h-4 sm:w-4 sm:mr-2" />
+            <span className="hidden sm:inline">Import</span>
           </Button>
 
           <Link to="/create-instance">
-            <Button className="h-9">
-              <Plus className="mr-2 h-4 w-4" /> Create Instance
+            <Button className="h-8 sm:h-9 text-xs sm:text-sm">
+              <Plus className="h-3 w-3 sm:h-4 sm:w-4 sm:mr-2" />
+              <span className="hidden sm:inline">Create</span>
             </Button>
           </Link>
         </div>
@@ -677,27 +841,7 @@ export function InstancesView() {
               <Plus className="mr-2 h-4 w-4" />
               Create Instance
             </ContextMenuItem>
-            <ContextMenuItem onClick={() => setImportDialogOpen(true)}>
-              <FileInput className="mr-2 h-4 w-4" />
-              Import Instance
-            </ContextMenuItem>
-          </ContextMenuContent>
-        </ContextMenu>
-      ) : viewMode === "Grid" ? (
-        <ContextMenu>
-          <ContextMenuTrigger asChild>
-            <div className={`flex-1 grid ${gridClasses} gap-4 content-start`}>
-              {sortedInstances.map((instance) => (
-                <InstanceCard key={instance.id} instance={instance} />
-              ))}
-            </div>
-          </ContextMenuTrigger>
-          <ContextMenuContent className="w-48">
-            <ContextMenuItem onClick={() => navigate("/create-instance")}>
-              <Plus className="mr-2 h-4 w-4" />
-              Create Instance
-            </ContextMenuItem>
-            <ContextMenuItem onClick={() => setImportDialogOpen(true)}>
+            <ContextMenuItem onClick={() => navigate("/create-instance?source=import")}>
               <FileInput className="mr-2 h-4 w-4" />
               Import Instance
             </ContextMenuItem>
@@ -706,9 +850,57 @@ export function InstancesView() {
       ) : (
         <ContextMenu>
           <ContextMenuTrigger asChild>
-            <div className="flex-1 space-y-2">
-              {sortedInstances.map((instance) => (
-                <InstanceRow key={instance.id} instance={instance} />
+            <div className="flex-1 overflow-auto pr-1">
+              {groupedInstances.map((group) => (
+                <div 
+                  key={group.name} 
+                  className={cn(
+                    "mb-3 md:mb-4 rounded-lg transition-colors",
+                    dropTargetGroup === group.name && draggedInstance && "bg-primary/10 ring-2 ring-primary/50"
+                  )}
+                  onDragOver={(e) => handleDragOver(e, group.name)}
+                  onDragLeave={handleDragLeave}
+                  onDrop={(e) => handleDrop(e, group.name)}
+                >
+                  {/* Group Header - Show when dragging OR when there are multiple groups */}
+                  {(groupedInstances.length > 1 || !group.isUngrouped || draggedInstance) && (
+                    <div
+                      onClick={() => toggleGroupCollapse(group.name)}
+                      className={cn(
+                        "flex items-center gap-2 w-full p-2 mb-2 rounded-md hover:bg-muted transition-colors text-left cursor-pointer select-none",
+                        dropTargetGroup === group.name && draggedInstance && "bg-primary/20 ring-2 ring-primary/50"
+                      )}
+                    >
+                      {collapsedGroups.has(group.name) ? (
+                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                      )}
+                      <FolderTree className="h-4 w-4 text-muted-foreground" />
+                      <span className="font-semibold text-sm md:text-base">{group.name}</span>
+                      <span className="text-xs text-muted-foreground">
+                        ({group.instances.length})
+                      </span>
+                    </div>
+                  )}
+                  
+                  {/* Group Content */}
+                  {!collapsedGroups.has(group.name) && (
+                    viewMode === "Grid" ? (
+                      <div className={`grid ${gridClasses} gap-2 md:gap-4 content-start`}>
+                        {group.instances.map((instance) => (
+                          <InstanceCard key={instance.id} instance={instance} />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {group.instances.map((instance) => (
+                          <InstanceRow key={instance.id} instance={instance} />
+                        ))}
+                      </div>
+                    )
+                  )}
+                </div>
               ))}
             </div>
           </ContextMenuTrigger>
@@ -717,7 +909,7 @@ export function InstancesView() {
               <Plus className="mr-2 h-4 w-4" />
               Create Instance
             </ContextMenuItem>
-            <ContextMenuItem onClick={() => setImportDialogOpen(true)}>
+            <ContextMenuItem onClick={() => navigate("/create-instance?source=import")}>
               <FileInput className="mr-2 h-4 w-4" />
               Import Instance
             </ContextMenuItem>
@@ -761,20 +953,49 @@ export function InstancesView() {
           <DialogHeader>
             <DialogTitle>Change Group</DialogTitle>
             <DialogDescription>
-              Enter a group name or leave empty to ungroup.
+              Select an existing group or enter a new group name. Leave empty to ungroup.
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
-            <Label htmlFor="group">Group Name</Label>
-            <Input
-              id="group"
-              value={groupName}
-              onChange={(e) => setGroupName(e.target.value)}
-              placeholder="Enter group name (or leave empty)"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleChangeGroup();
-              }}
-            />
+          <div className="py-4 space-y-4">
+            {/* Existing Groups Dropdown */}
+            {existingGroups.length > 0 && (
+              <div>
+                <Label className="mb-2 block">Existing Groups</Label>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant={groupName === "" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setGroupName("")}
+                  >
+                    Ungrouped
+                  </Button>
+                  {existingGroups.map((g) => (
+                    <Button
+                      key={g}
+                      variant={groupName === g ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setGroupName(g)}
+                    >
+                      {g}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            {/* Custom Group Input */}
+            <div>
+              <Label htmlFor="group">{existingGroups.length > 0 ? "Or enter a new group name" : "Group Name"}</Label>
+              <Input
+                id="group"
+                value={groupName}
+                onChange={(e) => setGroupName(e.target.value)}
+                placeholder="Enter group name (or leave empty)"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleChangeGroup();
+                }}
+              />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="secondary" onClick={() => setGroupDialogOpen(false)}>
@@ -807,6 +1028,41 @@ export function InstancesView() {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Shortcut Dialog */}
+      <Dialog open={shortcutDialogOpen} onOpenChange={setShortcutDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Shortcut</DialogTitle>
+            <DialogDescription>
+              Create a shortcut to launch "{selectedInstanceName}" directly.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-3">
+            <Button 
+              className="w-full justify-start" 
+              variant="outline"
+              onClick={() => selectedInstance && handleCreateShortcut(selectedInstance, "desktop")}
+            >
+              <LinkIcon className="mr-2 h-4 w-4" />
+              Desktop Shortcut
+            </Button>
+            <Button 
+              className="w-full justify-start" 
+              variant="outline"
+              onClick={() => selectedInstance && handleCreateShortcut(selectedInstance, "start_menu")}
+            >
+              <LinkIcon className="mr-2 h-4 w-4" />
+              Start Menu Shortcut
+            </Button>
+          </div>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setShortcutDialogOpen(false)}>
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Export Instance Dialog */}
       {selectedInstance && (
         <ExportInstanceDialog
@@ -816,13 +1072,6 @@ export function InstancesView() {
           instanceName={selectedInstanceName}
         />
       )}
-
-      {/* Import Instance Dialog */}
-      <ImportInstanceDialog
-        open={importDialogOpen}
-        onOpenChange={setImportDialogOpen}
-        onImportComplete={loadInstances}
-      />
     </div>
   );
 }

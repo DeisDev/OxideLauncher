@@ -11,7 +11,6 @@ import {
   ExternalLink,
   AlertCircle,
   Palette,
-  Star,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -294,15 +293,6 @@ export function AccountsView() {
     setSkinDialogOpen(true);
   };
 
-  const setDefaultAccount = async (accountId: string) => {
-    try {
-      await invoke("set_default_account", { accountId });
-      loadAccounts();
-    } catch (error) {
-      setError(String(error));
-    }
-  };
-
   const getSkinAvatar = (account: AccountInfo) => {
     if (account.skin_url) {
       // Minecraft skin URLs point to the full skin, we need the face
@@ -520,20 +510,24 @@ export function AccountsView() {
                   <div>
                     <div className="flex items-center gap-2">
                       <h3 className="font-semibold text-lg">{account.username}</h3>
-                      {account.is_active && <Badge variant="default">Active</Badge>}
+                      {account.is_active && (
+                        <Badge className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20">Active</Badge>
+                      )}
                       {account.account_type === "Microsoft" && !account.is_valid && (
                         <Badge variant="destructive">Expired</Badge>
                       )}
                       {account.account_type === "Microsoft" &&
                         account.is_valid &&
                         account.needs_refresh && (
-                          <Badge variant="secondary">Needs Refresh</Badge>
+                          <Badge className="bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30">Needs Refresh</Badge>
                         )}
                     </div>
-                    <p className="text-sm text-muted-foreground">
-                      {account.account_type}
+                    <p className="text-sm">
+                      <span className={account.account_type === "Microsoft" ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"}>
+                        {account.account_type}
+                      </span>
                       {account.uuid && (
-                        <span className="text-xs ml-2 opacity-50">
+                        <span className="text-xs ml-2 text-muted-foreground opacity-50">
                           {account.uuid.substring(0, 8)}...
                         </span>
                       )}
@@ -567,23 +561,13 @@ export function AccountsView() {
                     </>
                   )}
                   {!account.is_active && (
-                    <>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setDefaultAccount(account.id)}
-                        title="Set as default account"
-                      >
-                        <Star className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => setActiveAccount(account.id)}
-                      >
-                        <CheckCircle className="mr-2 h-4 w-4" /> Set Active
-                      </Button>
-                    </>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setActiveAccount(account.id)}
+                    >
+                      <CheckCircle className="mr-2 h-4 w-4" /> Set Active
+                    </Button>
                   )}
                   <Button
                     variant="destructive"

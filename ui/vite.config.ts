@@ -6,6 +6,9 @@ import path from "path";
 export default defineConfig({
   plugins: [react()],
   
+  // Base path for production build (required for Tauri)
+  base: "./",
+  
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

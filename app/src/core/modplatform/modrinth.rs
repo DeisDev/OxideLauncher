@@ -68,6 +68,55 @@ impl ModrinthClient {
         })
     }
 
+    /// Search for projects with environment (client_side/server_side) filters
+    pub async fn search_with_environment(
+        &self, 
+        query: &SearchQuery, 
+        client_side: Option<&str>,
+        server_side: Option<&str>,
+    ) -> Result<SearchResults> {
+        let mut facets = build_facets(query);
+        
+        // Add client_side filter
+        if let Some(cs) = client_side {
+            if !cs.is_empty() {
+                facets.push(format!("[\"client_side:{}\"]", cs));
+            }
+        }
+        
+        // Add server_side filter
+        if let Some(ss) = server_side {
+            if !ss.is_empty() {
+                facets.push(format!("[\"server_side:{}\"]", ss));
+            }
+        }
+        
+        let mut params = vec![
+            ("query", query.query.clone()),
+            ("limit", query.limit.to_string()),
+            ("offset", query.offset.to_string()),
+            ("index", query.sort.modrinth_name().to_string()),
+        ];
+        
+        if !facets.is_empty() {
+            params.push(("facets", format!("[{}]", facets.join(","))));
+        }
+        
+        let response: ModrinthSearchResponse = self.request(reqwest::Method::GET, "/search")
+            .query(&params)
+            .send()
+            .await?
+            .json()
+            .await?;
+        
+        Ok(SearchResults {
+            hits: response.hits.into_iter().map(|h| h.into()).collect(),
+            total_hits: response.total_hits,
+            offset: response.offset,
+            limit: response.limit,
+        })
+    }
+
     /// Get project details
     pub async fn get_project(&self, id_or_slug: &str) -> Result<Project> {
         let response: ModrinthProject = self.request(reqwest::Method::GET, &format!("/project/{}", id_or_slug))

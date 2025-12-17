@@ -423,6 +423,66 @@ pub struct PrismRequirement {
 }
 
 // =============================================================================
+// FTB App Instance Format (instance.json)
+// =============================================================================
+
+/// FTB App instance.json format
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FTBInstanceJson {
+    /// Unique identifier
+    pub uuid: String,
+    
+    /// Pack ID
+    pub id: u32,
+    
+    /// Version ID
+    pub version_id: u32,
+    
+    /// Instance name
+    pub name: String,
+    
+    /// Pack version
+    pub version: String,
+    
+    /// Minecraft version
+    pub mc_version: String,
+    
+    /// Mod loader string (e.g., "forge-47.1.0", "fabric-0.14.21")
+    #[serde(default)]
+    pub mod_loader: String,
+    
+    /// Total play time in milliseconds
+    #[serde(default)]
+    pub total_play_time: u64,
+    
+    /// JVM arguments
+    #[serde(default)]
+    pub jvm_args: Option<String>,
+}
+
+/// FTB App version.json format (for legacy instances)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FTBVersionJson {
+    /// Targets (minecraft, forge, etc)
+    pub targets: Vec<FTBTarget>,
+}
+
+/// A target in FTB version.json
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FTBTarget {
+    /// Target name (minecraft, forge, fabric, etc)
+    pub name: String,
+    
+    /// Target version
+    pub version: String,
+    
+    /// Target type
+    #[serde(rename = "type")]
+    pub target_type: Option<String>,
+}
+
+// =============================================================================
 // Import Result
 // =============================================================================
 
@@ -505,6 +565,12 @@ pub enum ImportType {
     CurseForge,
     /// Prism/MultiMC instance
     Prism,
+    /// Technic modpack
+    Technic,
+    /// ATLauncher modpack
+    ATLauncher,
+    /// FTB App instance
+    FTBApp,
     /// Unknown format
     Unknown,
 }
@@ -518,8 +584,30 @@ impl ImportType {
         }
         
         // Check for Modrinth format (has modrinth.index.json at root)
+        // Note: Prioritize this over CurseForge since Flame manifests can appear in overrides
         if file_list.iter().any(|f| f == "modrinth.index.json" || f == "/modrinth.index.json") {
             return ImportType::Modrinth;
+        }
+        
+        // Check for FTB App format (has instance.json with FTB-specific fields)
+        // FTB App stores instances with instance.json at root
+        if file_list.iter().any(|f| f == "instance.json" || f.ends_with("/instance.json")) {
+            // FTB App also has .ftbapp folder
+            if file_list.iter().any(|f| f.contains(".ftbapp/") || f.starts_with(".ftbapp/")) {
+                return ImportType::FTBApp;
+            }
+        }
+        
+        // Check for Technic format (has bin/modpack.jar or bin/version.json)
+        // These are legacy Technic packs with modded jar files
+        let has_modpack_jar = file_list.iter().any(|f| {
+            f == "bin/modpack.jar" || f.ends_with("/bin/modpack.jar")
+        });
+        let has_version_json = file_list.iter().any(|f| {
+            f == "bin/version.json" || f.ends_with("/bin/version.json")
+        });
+        if has_modpack_jar || has_version_json {
+            return ImportType::Technic;
         }
         
         // Check for CurseForge format
@@ -531,6 +619,11 @@ impl ImportType {
         // Check for Prism/MultiMC format
         if file_list.iter().any(|f| f == "instance.cfg" || f.ends_with("/instance.cfg")) {
             return ImportType::Prism;
+        }
+        
+        // Check for FTB App format without .ftbapp folder (just instance.json)
+        if file_list.iter().any(|f| f == "instance.json" || f.ends_with("/instance.json")) {
+            return ImportType::FTBApp;
         }
         
         ImportType::Unknown

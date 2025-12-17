@@ -8,6 +8,7 @@ pub mod accounts;
 pub mod config;
 pub mod versions;
 pub mod mods;
+pub mod modpacks;
 pub mod java;
 pub mod worlds;
 pub mod resources;

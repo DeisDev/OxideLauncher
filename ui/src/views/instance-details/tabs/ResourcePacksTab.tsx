@@ -136,14 +136,14 @@ export function ResourcePacksTab({ instanceId, instance }: ResourcePacksTabProps
     let unlisten: (() => void) | undefined;
 
     webview.onDragDropEvent((event) => {
-      if (event.payload.type === 'over') {
+      if (event.payload.type === 'over' || event.payload.type === 'enter') {
         setIsDragging(true);
       } else if (event.payload.type === 'drop') {
         setIsDragging(false);
         if (event.payload.paths && event.payload.paths.length > 0) {
           processDroppedPaths(event.payload.paths);
         }
-      } else if (event.payload.type === 'leave' || event.payload.type === 'cancel') {
+      } else if (event.payload.type === 'leave') {
         setIsDragging(false);
       }
     }).then(fn => {
@@ -223,32 +223,32 @@ export function ResourcePacksTab({ instanceId, instance }: ResourcePacksTabProps
         onDrop={handleDrop}
       >
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <CardTitle>Resource Packs</CardTitle>
               <CardDescription>Manage resource packs for this instance</CardDescription>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button 
                 variant="default" 
                 size="sm" 
                 onClick={() => setShowDownloadDialog(true)}
                 disabled={!instance}
               >
-                <Download className="h-4 w-4 mr-2" />
-                Download
+                <Download className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Download</span>
               </Button>
               <Button variant="outline" size="sm" onClick={handleAddFile}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add File
+                <Plus className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Add File</span>
               </Button>
               <Button variant="outline" size="sm" onClick={openFolder}>
-                <FolderOpen className="h-4 w-4 mr-2" />
-                Open Folder
+                <FolderOpen className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Open Folder</span>
               </Button>
               <Button variant="outline" size="sm" onClick={loadResourcePacks} disabled={loading}>
-                <RefreshCw className={cn("h-4 w-4 mr-2", loading && "animate-spin")} />
-                Refresh
+                <RefreshCw className={cn("h-4 w-4 sm:mr-2", loading && "animate-spin")} />
+                <span className="hidden sm:inline">Refresh</span>
               </Button>
             </div>
           </div>

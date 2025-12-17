@@ -166,6 +166,12 @@ fn main() {
             commands::instances::export_instance_to_file,
             commands::instances::detect_import_format,
             commands::instances::import_instance_from_file,
+            commands::instances::import_instance_from_url,
+            // Modpack commands
+            commands::modpacks::search_modpacks,
+            commands::modpacks::get_modpack_details,
+            commands::modpacks::get_modpack_versions,
+            commands::modpacks::get_modpack_categories,
             // Account commands
             commands::accounts::get_accounts,
             commands::accounts::add_offline_account,

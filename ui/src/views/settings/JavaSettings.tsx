@@ -128,11 +128,11 @@ export function JavaSettings() {
     <div className="space-y-6">
       {/* Java Installations */}
       <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
+        <CardHeader className="pb-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div>
-              <CardTitle>Java Installations</CardTitle>
-              <CardDescription>
+              <CardTitle className="text-base sm:text-lg">Java Installations</CardTitle>
+              <CardDescription className="text-xs sm:text-sm">
                 Manage Java runtimes for Minecraft instances.
               </CardDescription>
             </div>
@@ -141,53 +141,53 @@ export function JavaSettings() {
               size="sm"
               onClick={detectJavaInstallations}
               disabled={detectingJava}
+              className="w-full sm:w-auto"
             >
               <RefreshCw className={`mr-2 h-4 w-4 ${detectingJava ? 'animate-spin' : ''}`} />
               {detectingJava ? "Detecting..." : "Detect Java"}
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-4 pt-0">
           {javaInstallations.length > 0 ? (
             <div className="space-y-2">
-              <Label>Detected Installations</Label>
-              <ScrollArea className="h-[280px] border rounded-md">
-                <div className="p-4 space-y-2">
+              <Label className="text-sm">Detected Installations</Label>
+              <ScrollArea className="h-[180px] sm:h-[240px] border rounded-md">
+                <div className="p-2 space-y-2">
                   {javaInstallations.map((java) => (
                     <div
                       key={java.id}
-                      className={`p-3 rounded-lg border transition-colors ${
+                      className={`p-2 rounded-lg border transition-colors ${
                         config?.java.custom_path === java.path
                           ? 'border-primary bg-primary/5'
                           : 'hover:bg-muted/50'
                       }`}
                     >
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1 min-w-0 space-y-1">
-                          <div className="flex items-center gap-2">
-                            <p className="font-medium">Java {java.major_version}</p>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0 space-y-0.5">
+                          <div className="flex items-center gap-1 flex-wrap">
+                            <p className="font-medium text-sm">Java {java.major_version}</p>
                             {java.is_managed && (
                               <Badge variant="secondary" className="text-xs">Managed</Badge>
                             )}
                             {java.recommended && (
-                              <Badge variant="default" className="text-xs">Recommended</Badge>
+                              <Badge variant="default" className="text-xs hidden sm:inline-flex">Recommended</Badge>
                             )}
                             {java.is_64bit && (
-                              <Badge variant="outline" className="text-xs">64-bit</Badge>
+                              <Badge variant="outline" className="text-xs hidden sm:inline-flex">64-bit</Badge>
                             )}
                           </div>
-                          <p className="text-sm text-muted-foreground">
+                          <p className="text-xs text-muted-foreground truncate">
                             {java.vendor} • {java.version}
                           </p>
-                          <p className="text-xs text-muted-foreground truncate">{java.path}</p>
                         </div>
-                        <div className="flex gap-1 ml-2">
+                        <div className="flex gap-1 flex-shrink-0">
                           {config?.java.custom_path === java.path ? (
-                            <Button variant="ghost" size="sm" onClick={() => selectJava("")}>
+                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => selectJava("")}>
                               <X className="h-4 w-4" />
                             </Button>
                           ) : (
-                            <Button variant="ghost" size="sm" onClick={() => selectJava(java.path)}>
+                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => selectJava(java.path)}>
                               <Check className="h-4 w-4" />
                             </Button>
                           )}
@@ -195,6 +195,7 @@ export function JavaSettings() {
                             <Button
                               variant="ghost"
                               size="sm"
+                              className="h-7 w-7 p-0"
                               onClick={() => {
                                 setJavaToDelete(java);
                                 setShowDeleteDialog(true);
@@ -211,26 +212,26 @@ export function JavaSettings() {
               </ScrollArea>
             </div>
           ) : (
-            <div className="text-center py-8 text-muted-foreground">
+            <div className="text-center py-4 text-muted-foreground text-sm">
               {detectingJava ? "Detecting Java installations..." : "No Java installations found. Click 'Detect Java' to scan your system."}
             </div>
           )}
 
           {/* Download Java */}
           {availableVersions.length > 0 && (
-            <div className="space-y-2 pt-4 border-t">
-              <Label>Download Java</Label>
-              <p className="text-sm text-muted-foreground">
+            <div className="space-y-2 pt-3 border-t">
+              <Label className="text-sm">Download Java</Label>
+              <p className="text-xs text-muted-foreground">
                 Download official Eclipse Temurin JDK builds.
               </p>
-              <ScrollArea className="h-[180px] border rounded-md">
-                <div className="p-3 space-y-2">
+              <ScrollArea className="h-[140px] sm:h-[160px] border rounded-md">
+                <div className="p-2 space-y-1.5">
                   {availableVersions.map((version) => (
                     <div
                       key={version.major}
-                      className="flex items-center justify-between p-2 border rounded-lg hover:bg-muted/50"
+                      className="flex items-center justify-between gap-2 p-2 border rounded-lg hover:bg-muted/50"
                     >
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
                         <span className="font-medium text-sm">Java {version.major}</span>
                         {version.is_lts && (
                           <Badge variant="secondary" className="text-xs">LTS</Badge>
@@ -241,16 +242,17 @@ export function JavaSettings() {
                         size="sm"
                         onClick={() => downloadJava(version.major)}
                         disabled={downloadingJava !== null}
+                        className="flex-shrink-0"
                       >
                         {downloadingJava === version.major ? (
                           <>
-                            <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                            Downloading...
+                            <RefreshCw className="h-4 w-4 animate-spin sm:mr-2" />
+                            <span className="hidden sm:inline">Downloading...</span>
                           </>
                         ) : (
                           <>
-                            <Download className="h-4 w-4 mr-2" />
-                            Download
+                            <Download className="h-4 w-4 sm:mr-2" />
+                            <span className="hidden sm:inline">Download</span>
                           </>
                         )}
                       </Button>
@@ -259,7 +261,7 @@ export function JavaSettings() {
                 </div>
               </ScrollArea>
               {downloadProgress && (
-                <p className="text-sm text-muted-foreground mt-2">{downloadProgress}</p>
+                <p className="text-xs text-muted-foreground">{downloadProgress}</p>
               )}
             </div>
           )}
@@ -268,15 +270,15 @@ export function JavaSettings() {
 
       {/* Java Configuration */}
       <Card>
-        <CardHeader>
-          <CardTitle>Java Configuration</CardTitle>
-          <CardDescription>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base sm:text-lg">Java Configuration</CardTitle>
+          <CardDescription className="text-xs sm:text-sm">
             Configure Java path and JVM arguments.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="javaPath" className="inline-flex items-center">
+        <CardContent className="space-y-3 pt-0">
+          <div className="space-y-1.5">
+            <Label htmlFor="javaPath" className="inline-flex items-center text-sm">
               Custom Java Path (optional)
               <SettingTooltip>
                 Specify a custom Java executable path. This overrides automatic Java detection. Useful for using a specific Java version.
@@ -292,14 +294,15 @@ export function JavaSettings() {
                 })
               }
               placeholder="/path/to/java"
+              className="h-9"
             />
-            <p className="text-sm text-muted-foreground">
-              Leave empty to auto-detect Java installation, or select one from the list above.
+            <p className="text-xs text-muted-foreground">
+              Leave empty to auto-detect, or select from the list above.
             </p>
           </div>
           
-          <div className="space-y-2">
-            <Label htmlFor="javaArgs" className="inline-flex items-center">
+          <div className="space-y-1.5">
+            <Label htmlFor="javaArgs" className="inline-flex items-center text-sm">
               Extra Java Arguments
               <SettingTooltip>
                 Advanced JVM flags for performance tuning. Common options: -XX:+UseG1GC for garbage collection, -XX:+UnlockExperimentalVMOptions for experimental features.
@@ -315,9 +318,10 @@ export function JavaSettings() {
                 })
               }
               placeholder="-XX:+UseG1GC -XX:+ParallelRefProcEnabled"
+              className="h-9"
             />
-            <p className="text-sm text-muted-foreground">
-              Additional JVM arguments passed to Minecraft. Separate multiple arguments with spaces.
+            <p className="text-xs text-muted-foreground">
+              Additional JVM arguments. Separate multiple with spaces.
             </p>
           </div>
         </CardContent>
@@ -325,17 +329,17 @@ export function JavaSettings() {
 
       {/* Memory Settings */}
       <Card>
-        <CardHeader>
-          <CardTitle>Memory Settings</CardTitle>
-          <CardDescription>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base sm:text-lg">Memory Settings</CardTitle>
+          <CardDescription className="text-xs sm:text-sm">
             Configure how much RAM Minecraft can use.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="minMemory" className="inline-flex items-center">
-                Minimum Memory (MB)
+        <CardContent className="space-y-3 pt-0">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="minMemory" className="inline-flex items-center text-sm">
+                Min (MB)
                 <SettingTooltip>
                   Initial heap size for Java. Setting this equal to maximum memory can improve startup time.
                 </SettingTooltip>
@@ -355,11 +359,12 @@ export function JavaSettings() {
                 }
                 min="512"
                 max="32768"
+                className="h-9"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="maxMemory" className="inline-flex items-center">
-                Maximum Memory (MB)
+            <div className="space-y-1.5">
+              <Label htmlFor="maxMemory" className="inline-flex items-center text-sm">
+                Max (MB)
                 <SettingTooltip>
                   Maximum heap size for Java. Too little causes lag, too much can cause stuttering. Recommended: 4-8GB for modded, 2-4GB for vanilla.
                 </SettingTooltip>
@@ -379,29 +384,30 @@ export function JavaSettings() {
                 }
                 min="1024"
                 max="32768"
+                className="h-9"
               />
             </div>
           </div>
-          <p className="text-sm text-muted-foreground">
-            Recommended: Set maximum memory to half of your system RAM.
+          <p className="text-xs text-muted-foreground">
+            Recommended: Set max to half of your system RAM.
           </p>
         </CardContent>
       </Card>
 
       {/* Java Behavior */}
       <Card>
-        <CardHeader>
-          <CardTitle>Java Behavior</CardTitle>
-          <CardDescription>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base sm:text-lg">Java Behavior</CardTitle>
+          <CardDescription className="text-xs sm:text-sm">
             Configure automatic Java management.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label htmlFor="autoDownloadJava">Auto-Download Java</Label>
-              <p className="text-sm text-muted-foreground">
-                Automatically download required Java versions when launching instances.
+        <CardContent className="space-y-3 pt-0">
+          <div className="flex items-center justify-between gap-3">
+            <div className="space-y-0.5 min-w-0 flex-1">
+              <Label htmlFor="autoDownloadJava" className="text-sm">Auto-Download Java</Label>
+              <p className="text-xs text-muted-foreground">
+                Auto-download required Java versions when launching.
               </p>
             </div>
             <Switch
@@ -415,11 +421,11 @@ export function JavaSettings() {
               }
             />
           </div>
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label htmlFor="skipCompatibilityCheck">Skip Java Compatibility Check</Label>
-              <p className="text-sm text-muted-foreground">
-                Don't verify that Java versions match Minecraft requirements.
+          <div className="flex items-center justify-between gap-3">
+            <div className="space-y-0.5 min-w-0 flex-1">
+              <Label htmlFor="skipCompatibilityCheck" className="text-sm">Skip Compatibility Check</Label>
+              <p className="text-xs text-muted-foreground">
+                Don't verify Java versions match Minecraft requirements.
               </p>
             </div>
             <Switch

@@ -207,48 +207,63 @@ export function InstanceDetailsView() {
       </div>
     );
   }
+  // Color coding for mod loaders
+  const getLoaderBadgeClass = (loader: string) => {
+    switch (loader.toLowerCase()) {
+      case "fabric": return "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30";
+      case "forge": return "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30";
+      case "neoforge": return "bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/30";
+      case "quilt": return "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30";
+      case "liteloader": return "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/30";
+      default: return "";
+    }
+  };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="flex items-center gap-4 p-4 border-b">
-        <Button variant="ghost" size="icon" onClick={() => navigate("/")}>
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <div className="flex-1">
-          <h1 className="text-xl font-semibold">{instance.name}</h1>
-          <div className="flex items-center gap-2 mt-1">
-            <Badge variant="secondary">{instance.minecraft_version}</Badge>
-            <Badge variant="outline">{instance.mod_loader}</Badge>
-            {instance.mod_loader_version && (
-              <span className="text-xs text-muted-foreground">
-                v{instance.mod_loader_version}
-              </span>
-            )}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 p-3 sm:p-4 border-b flex-shrink-0">
+        <div className="flex items-center gap-3 sm:gap-4">
+          <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-10 sm:w-10 flex-shrink-0" onClick={() => navigate("/")}>
+            <ArrowLeft className="h-4 w-4 sm:h-5 sm:w-5" />
+          </Button>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-lg sm:text-xl font-semibold truncate">{instance.name}</h1>
+            <div className="flex flex-wrap items-center gap-1 sm:gap-2 mt-1">
+              <Badge className="text-xs bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20">{instance.minecraft_version}</Badge>
+              <Badge variant="outline" className={cn("text-xs", getLoaderBadgeClass(instance.mod_loader))}>{instance.mod_loader}</Badge>
+              {instance.mod_loader_version && (
+                <span className="text-xs text-muted-foreground hidden sm:inline">
+                  v{instance.mod_loader_version}
+                </span>
+              )}
+            </div>
           </div>
         </div>
         
         {/* Action buttons */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 sm:ml-auto">
           {isRunning ? (
-            <Button variant="destructive" onClick={killGame}>
-              <Square className="h-4 w-4 mr-2" />
-              Kill
+            <Button variant="destructive" size="sm" onClick={killGame}>
+              <Square className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">Kill</span>
             </Button>
           ) : (
             <div className="flex">
               <Button 
                 className="rounded-r-none" 
+                size="sm"
                 onClick={() => launchGame("normal")}
                 disabled={launching}
               >
-                <Play className="h-4 w-4 mr-2" />
-                {launching ? "Launching..." : "Launch"}
+                <Play className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">{launching ? "Launching..." : "Launch"}</span>
               </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button 
                     className="rounded-l-none border-l border-primary-foreground/20 px-2"
+                    size="sm"
                     disabled={launching}
                   >
                     <ChevronDown className="h-4 w-4" />
@@ -269,8 +284,8 @@ export function InstanceDetailsView() {
               </DropdownMenu>
             </div>
           )}
-          <Button variant="ghost" size="icon" onClick={() => navigate("/")}>
-            <X className="h-5 w-5" />
+          <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-10 sm:w-10" onClick={() => navigate("/")}>
+            <X className="h-4 w-4 sm:h-5 sm:w-5" />
           </Button>
         </div>
       </div>
@@ -281,7 +296,7 @@ export function InstanceDetailsView() {
         onValueChange={(v) => setActiveTab(v as TabType)}
         className="flex-1 flex flex-col overflow-hidden"
       >
-        <TabsList className="w-full justify-start gap-1 rounded-none border-b bg-transparent px-4 h-auto py-1">
+        <TabsList className="w-full justify-start gap-0.5 rounded-none border-b bg-transparent px-2 sm:px-4 h-auto py-1 overflow-x-auto flex-shrink-0">
           {TABS.map((tab) => (
             <TabsTrigger
               key={tab.id}
@@ -289,15 +304,16 @@ export function InstanceDetailsView() {
               className={cn(
                 "data-[state=active]:bg-background data-[state=active]:shadow-sm",
                 "rounded-t-md rounded-b-none border-b-2 border-transparent",
-                "data-[state=active]:border-primary px-4 py-2"
+                "data-[state=active]:border-primary px-2 lg:px-4 py-1.5 sm:py-2 text-xs sm:text-sm whitespace-nowrap flex-shrink-0"
               )}
             >
-              {tab.label}
+              <span className="hidden lg:inline">{tab.label}</span>
+              <span className="lg:hidden">{tab.shortLabel}</span>
             </TabsTrigger>
           ))}
         </TabsList>
 
-        <div className="flex-1 overflow-hidden p-4">
+        <div className="flex-1 overflow-hidden p-2 sm:p-4">
           {/* Log Tab */}
           <TabsContent value="log" className="h-full m-0">
             <LogTab

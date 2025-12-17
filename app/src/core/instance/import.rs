@@ -10,7 +10,7 @@ use crate::core::error::Result;
 use super::transfer::{
     ImportType, OxideManifest, OxideIcon, ModrinthIndex, CurseForgeManifest, 
     PrismInstanceConfig, PrismPackJson, ImportResult, FileToDownload, PlatformFileInfo,
-    OxideInstanceSettings, OxideManagedPack,
+    OxideInstanceSettings, OxideManagedPack, FTBInstanceJson, FTBVersionJson,
 };
 
 /// Progress callback type that's Send + Sync
@@ -60,6 +60,9 @@ pub async fn import_instance(
         ImportType::Modrinth => import_modrinth(archive_path, options, progress_callback).await,
         ImportType::CurseForge => import_curseforge(archive_path, options, progress_callback).await,
         ImportType::Prism => import_prism(archive_path, options, progress_callback).await,
+        ImportType::Technic => import_technic(archive_path, options, progress_callback).await,
+        ImportType::ATLauncher => import_atlauncher(archive_path, options, progress_callback).await,
+        ImportType::FTBApp => import_ftb_app(archive_path, options, progress_callback).await,
         ImportType::Unknown => Err("Unknown archive format".into()),
     }
 }
@@ -70,6 +73,9 @@ fn format_name(import_type: &ImportType) -> &'static str {
         ImportType::Modrinth => "Modrinth",
         ImportType::CurseForge => "CurseForge",
         ImportType::Prism => "Prism Launcher",
+        ImportType::Technic => "Technic",
+        ImportType::ATLauncher => "ATLauncher",
+        ImportType::FTBApp => "FTB App",
         ImportType::Unknown => "Unknown",
     }
 }
@@ -550,4 +556,421 @@ fn extract_prism_minecraft(archive: &mut ZipArchive<File>, target_dir: &Path) ->
     }
     
     Ok(())
+}
+
+/// Import from Technic format
+/// Technic packs have a unique structure with bin/modpack.jar or bin/version.json
+async fn import_technic(
+    archive_path: &Path,
+    options: &ImportOptions,
+    progress_callback: Option<ProgressCallback>,
+) -> Result<ImportResult> {
+    if let Some(ref cb) = progress_callback {
+        cb(0.15, "Reading Technic pack...");
+    }
+    
+    let file = File::open(archive_path)?;
+    let mut archive = ZipArchive::new(file)?;
+    
+    // Collect file list to understand structure
+    let file_list: Vec<String> = (0..archive.len())
+        .filter_map(|i| archive.name_for_index(i).map(|s| s.to_string()))
+        .collect();
+    
+    // Determine if this is a modpack.jar based pack or version.json based pack
+    let has_modpack_jar = file_list.iter().any(|f| f.ends_with("bin/modpack.jar"));
+    let has_version_json = file_list.iter().any(|f| f.ends_with("bin/version.json"));
+    
+    // Try to determine the Minecraft version
+    let minecraft_version = if has_version_json {
+        // Read version.json to get MC version
+        match archive.by_name("bin/version.json") {
+            Ok(mut vf) => {
+                let mut content = String::new();
+                vf.read_to_string(&mut content)?;
+                
+                // Parse the JSON and get the version
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                    json.get("inheritsFrom")
+                        .or_else(|| json.get("id"))
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| "1.12.2".to_string())
+                } else {
+                    "1.12.2".to_string()
+                }
+            }
+            Err(_) => "1.12.2".to_string(),
+        }
+    } else {
+        // For modpack.jar based packs, default to 1.7.10 (common for legacy Technic)
+        "1.7.10".to_string()
+    };
+    
+    // Get name from archive filename if no override
+    let name = options.name_override.clone()
+        .unwrap_or_else(|| {
+            archive_path.file_stem()
+                .and_then(|s| s.to_str())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "Technic Pack".to_string())
+        });
+    
+    // Create temporary extraction path
+    let temp_dir = options.instances_dir.join("_temp_import");
+    fs::create_dir_all(&temp_dir)?;
+    
+    if let Some(ref cb) = progress_callback {
+        cb(0.3, "Extracting Technic pack files...");
+    }
+    
+    // Extract all files to temp dir
+    // Technic packs have a flat structure with bin/, mods/, config/, etc.
+    let total_files = archive.len();
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i)?;
+        let name_raw = file.name().to_string();
+        
+        if file.is_dir() {
+            continue;
+        }
+        
+        if let Some(ref cb) = progress_callback {
+            let progress = 0.3 + (0.6 * (i as f32 / total_files as f32));
+            cb(progress, &format!("Extracting: {}", name_raw));
+        }
+        
+        // Skip the bin folder for now as it contains modpack.jar
+        // which we don't need to copy
+        if name_raw.starts_with("bin/") {
+            continue;
+        }
+        
+        let target_path = temp_dir.join(&name_raw);
+        
+        if let Some(parent) = target_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        
+        let mut data = Vec::new();
+        file.read_to_end(&mut data)?;
+        fs::write(&target_path, &data)?;
+    }
+    
+    // Detect mod loader from version.json
+    let mod_loader: Option<(String, String)> = if has_version_json {
+        // Read version.json again for mod loader detection
+        let file = File::open(archive_path)?;
+        let mut archive = ZipArchive::new(file)?;
+        
+        let content = match archive.by_name("bin/version.json") {
+            Ok(mut vf) => {
+                let mut c = String::new();
+                vf.read_to_string(&mut c)?;
+                Some(c)
+            }
+            Err(_) => None,
+        };
+        
+        if let Some(content) = content {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                // Check for Forge in libraries
+                let mut found_loader: Option<(String, String)> = None;
+                if let Some(libs) = json.get("libraries").and_then(|l| l.as_array()) {
+                    for lib in libs {
+                        if let Some(lib_name) = lib.get("name").and_then(|n| n.as_str()) {
+                            if lib_name.contains("minecraftforge") || lib_name.contains("net.minecraftforge:forge:") {
+                                // Extract Forge version from library name
+                                // Format: net.minecraftforge:forge:1.12.2-14.23.5.2860
+                                if let Some(version) = lib_name.split(':').last() {
+                                    if let Some(forge_ver) = version.split('-').last() {
+                                        found_loader = Some(("forge".to_string(), forge_ver.to_string()));
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                found_loader
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    
+    if let Some(ref cb) = progress_callback {
+        cb(1.0, "Import complete!");
+    }
+    
+    Ok(ImportResult {
+        name,
+        minecraft_version,
+        mod_loader,
+        files_to_download: Vec::new(),
+        overrides_path: Some(temp_dir),
+        icon: None,
+        playtime: 0,
+        notes: "Imported from Technic".to_string(),
+        managed_pack: Some(OxideManagedPack {
+            platform: "technic".to_string(),
+            pack_id: String::new(),
+            pack_name: options.name_override.clone().unwrap_or_default(),
+            version_id: String::new(),
+            version_name: String::new(),
+        }),
+        settings: OxideInstanceSettings::default(),
+    })
+}
+
+/// Import from ATLauncher format
+/// ATLauncher packs can be exported as zip files containing configs and mod references
+async fn import_atlauncher(
+    archive_path: &Path,
+    options: &ImportOptions,
+    progress_callback: Option<ProgressCallback>,
+) -> Result<ImportResult> {
+    if let Some(ref cb) = progress_callback {
+        cb(0.15, "Reading ATLauncher pack...");
+    }
+    
+    let file = File::open(archive_path)?;
+    let mut archive = ZipArchive::new(file)?;
+    
+    // Create temporary extraction path
+    let temp_dir = options.instances_dir.join("_temp_import");
+    fs::create_dir_all(&temp_dir)?;
+    
+    // ATLauncher exported packs typically have:
+    // - instance.json or pack.json with metadata
+    // - mods/ folder with mod jars or mod info
+    // - config/ folder with configuration
+    
+    // Try to find instance metadata
+    let mut instance_name = "ATLauncher Pack".to_string();
+    let mut minecraft_version = "1.20.1".to_string();
+    let mut mod_loader: Option<(String, String)> = None;
+    
+    // Look for instance.json or similar metadata files
+    let file_list: Vec<String> = (0..archive.len())
+        .filter_map(|i| archive.name_for_index(i).map(|s| s.to_string()))
+        .collect();
+    
+    // Check for various ATLauncher metadata files
+    for file_name in &file_list {
+        if file_name.ends_with("instance.json") || file_name == "instance.json" {
+            if let Ok(mut file) = archive.by_name(file_name) {
+                let mut content = String::new();
+                if file.read_to_string(&mut content).is_ok() {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                        // Extract basic info
+                        if let Some(name) = json.get("launcher").and_then(|l| l.get("name")).and_then(|n| n.as_str()) {
+                            instance_name = name.to_string();
+                        }
+                        if let Some(mc) = json.get("minecraft").and_then(|m| m.as_str()) {
+                            minecraft_version = mc.to_string();
+                        }
+                        if let Some(loader) = json.get("loader") {
+                            if let Some(loader_type) = loader.get("type").and_then(|t| t.as_str()) {
+                                if let Some(loader_ver) = loader.get("version").and_then(|v| v.as_str()) {
+                                    mod_loader = Some((loader_type.to_lowercase(), loader_ver.to_string()));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            break;
+        }
+    }
+    
+    // Reopen archive for extraction
+    let file = File::open(archive_path)?;
+    let mut archive = ZipArchive::new(file)?;
+    
+    if let Some(ref cb) = progress_callback {
+        cb(0.3, "Extracting files...");
+    }
+    
+    // Extract all files to temp directory
+    let total_files = archive.len();
+    for i in 0..total_files {
+        let mut file = archive.by_index(i)?;
+        let name = file.name().to_string();
+        
+        if file.is_dir() {
+            let dir_path = temp_dir.join(&name);
+            fs::create_dir_all(&dir_path)?;
+        } else {
+            let file_path = temp_dir.join(&name);
+            if let Some(parent) = file_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            let mut outfile = File::create(&file_path)?;
+            std::io::copy(&mut file, &mut outfile)?;
+        }
+        
+        if let Some(ref cb) = progress_callback {
+            let progress = 0.3 + (0.6 * (i as f32 / total_files as f32));
+            cb(progress, &format!("Extracting {}", name));
+        }
+    }
+    
+    let name = options.name_override.clone().unwrap_or(instance_name);
+    
+    if let Some(ref cb) = progress_callback {
+        cb(1.0, "Import complete!");
+    }
+    
+    Ok(ImportResult {
+        name: name.clone(),
+        minecraft_version,
+        mod_loader,
+        files_to_download: Vec::new(),
+        overrides_path: Some(temp_dir),
+        icon: None,
+        playtime: 0,
+        notes: "Imported from ATLauncher".to_string(),
+        managed_pack: Some(OxideManagedPack {
+            platform: "atlauncher".to_string(),
+            pack_id: String::new(),
+            pack_name: name,
+            version_id: String::new(),
+            version_name: String::new(),
+        }),
+        settings: OxideInstanceSettings::default(),
+    })
+}
+
+/// Import from FTB App format
+/// FTB App instances have instance.json with pack metadata
+async fn import_ftb_app(
+    archive_path: &Path,
+    options: &ImportOptions,
+    progress_callback: Option<ProgressCallback>,
+) -> Result<ImportResult> {
+    if let Some(ref cb) = progress_callback {
+        cb(0.15, "Reading FTB instance...");
+    }
+    
+    // First, get the file list to find instance.json
+    let file = File::open(archive_path)?;
+    let archive = ZipArchive::new(file)?;
+    let file_list: Vec<String> = (0..archive.len())
+        .filter_map(|i| archive.name_for_index(i).map(|s| s.to_string()))
+        .collect();
+    
+    // Find instance.json (might be at root or in a subdirectory)
+    let instance_file_name = file_list.iter()
+        .find(|f| *f == "instance.json" || f.ends_with("/instance.json"))
+        .ok_or("instance.json not found")?
+        .clone();
+    
+    // Reopen and read instance.json
+    let file = File::open(archive_path)?;
+    let mut archive = ZipArchive::new(file)?;
+    let ftb_instance: FTBInstanceJson = {
+        let mut file = archive.by_name(&instance_file_name)?;
+        let mut content = String::new();
+        file.read_to_string(&mut content)?;
+        serde_json::from_str(&content)?
+    };
+    
+    let name = options.name_override.clone()
+        .unwrap_or_else(|| ftb_instance.name.clone());
+    
+    // Parse mod loader from the modLoader field
+    // Format: "forge-47.1.0" or "fabric-0.14.21"
+    let mod_loader = if !ftb_instance.mod_loader.is_empty() {
+        let parts: Vec<&str> = ftb_instance.mod_loader.splitn(2, '-').collect();
+        if parts.len() == 2 {
+            Some((parts[0].to_lowercase(), parts[1].to_string()))
+        } else {
+            None
+        }
+    } else {
+        // Try legacy version.json for loader info
+        None
+    };
+    
+    // Create temporary extraction path
+    let temp_dir = options.instances_dir.join("_temp_import");
+    fs::create_dir_all(&temp_dir)?;
+    
+    // Reopen archive for extraction
+    let file = File::open(archive_path)?;
+    let mut archive = ZipArchive::new(file)?;
+    
+    if let Some(ref cb) = progress_callback {
+        cb(0.3, "Extracting files...");
+    }
+    
+    // Extract all files to temp directory
+    let total_files = archive.len();
+    for i in 0..total_files {
+        let mut file = archive.by_index(i)?;
+        let file_name = file.name().to_string();
+        
+        // Skip FTB-specific metadata files
+        if file_name == "instance.json" || file_name.starts_with(".ftbapp/") {
+            continue;
+        }
+        
+        if file.is_dir() {
+            let dir_path = temp_dir.join(&file_name);
+            fs::create_dir_all(&dir_path)?;
+        } else {
+            let file_path = temp_dir.join(&file_name);
+            if let Some(parent) = file_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            let mut outfile = File::create(&file_path)?;
+            std::io::copy(&mut file, &mut outfile)?;
+        }
+        
+        if let Some(ref cb) = progress_callback {
+            let progress = 0.3 + (0.6 * (i as f32 / total_files as f32));
+            cb(progress, &format!("Extracting {}", file_name));
+        }
+    }
+    
+    // Convert playtime from milliseconds to seconds
+    let playtime = ftb_instance.total_play_time / 1000;
+    
+    if let Some(ref cb) = progress_callback {
+        cb(1.0, "Import complete!");
+    }
+    
+    // Build settings from JVM args if present
+    let settings = if let Some(ref jvm_args) = ftb_instance.jvm_args {
+        OxideInstanceSettings {
+            jvm_args: Some(jvm_args.clone()),
+            ..Default::default()
+        }
+    } else {
+        OxideInstanceSettings::default()
+    };
+    
+    Ok(ImportResult {
+        name,
+        minecraft_version: ftb_instance.mc_version,
+        mod_loader,
+        files_to_download: Vec::new(),
+        overrides_path: Some(temp_dir),
+        icon: None,
+        playtime,
+        notes: format!("Imported from FTB App: {} v{}", ftb_instance.name, ftb_instance.version),
+        managed_pack: Some(OxideManagedPack {
+            platform: "ftb".to_string(),
+            pack_id: ftb_instance.id.to_string(),
+            pack_name: ftb_instance.name,
+            version_id: ftb_instance.version_id.to_string(),
+            version_name: ftb_instance.version,
+        }),
+        settings,
+    })
 }

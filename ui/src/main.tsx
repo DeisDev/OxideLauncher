@@ -8,8 +8,22 @@ document.addEventListener("contextmenu", (e) => {
   e.preventDefault();
 });
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
+// Global error handler for debugging
+window.onerror = (message, source, lineno, colno, error) => {
+  console.error("Global error:", { message, source, lineno, colno, error });
+};
+
+window.onunhandledrejection = (event) => {
+  console.error("Unhandled rejection:", event.reason);
+};
+
+const root = document.getElementById("root");
+if (root) {
+  ReactDOM.createRoot(root).render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>
+  );
+} else {
+  console.error("Root element not found!");
+}

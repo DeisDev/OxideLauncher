@@ -4,6 +4,7 @@
 
 export { DeleteConfirmationDialog } from './DeleteConfirmationDialog';
 export { ModDownloadDialog } from './ModDownloadDialog';
+export { ModpackDownloadDialog } from './ModpackDownloadDialog';
 export { ResourceDownloadDialog } from './ResourceDownloadDialog';
 export { SkinManagementDialog } from './SkinManagementDialog';
 export { ExportInstanceDialog } from './ExportInstanceDialog';

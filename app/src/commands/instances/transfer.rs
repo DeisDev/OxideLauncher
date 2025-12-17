@@ -163,6 +163,9 @@ pub async fn detect_import_format(
         ImportType::Modrinth => ("modrinth", "Modrinth (.mrpack)"),
         ImportType::CurseForge => ("curseforge", "CurseForge"),
         ImportType::Prism => ("prism", "Prism Launcher"),
+        ImportType::Technic => ("technic", "Technic"),
+        ImportType::ATLauncher => ("atlauncher", "ATLauncher"),
+        ImportType::FTBApp => ("ftbapp", "FTB App"),
         ImportType::Unknown => ("unknown", "Unknown Format"),
     };
     
@@ -331,6 +334,206 @@ pub async fn import_instance_from_file(
     };
     
     tracing::info!("Imported instance: {}", result_info.name);
+    
+    Ok(result_info)
+}
+
+/// Import an instance from a URL (downloads first, then imports)
+#[tauri::command]
+pub async fn import_instance_from_url(
+    state: State<'_, AppState>,
+    url: String,
+    name_override: Option<String>,
+) -> Result<ImportResultInfo, String> {
+    // Get temp and instances directories
+    let (temp_dir, instances_dir) = {
+        let config = state.config.lock().unwrap();
+        (config.data_dir().join("temp"), config.instances_dir())
+    };
+    
+    // Create temp directory
+    std::fs::create_dir_all(&temp_dir)
+        .map_err(|e| format!("Failed to create temp directory: {}", e))?;
+    
+    tracing::info!("Downloading modpack from URL: {}", url);
+    
+    // Parse URL to get filename
+    let url_parsed = url.parse::<reqwest::Url>()
+        .map_err(|e| format!("Invalid URL: {}", e))?;
+    
+    // Get filename from URL or use default
+    let filename = url_parsed.path_segments()
+        .and_then(|segments| segments.last())
+        .map(|s| s.to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "modpack.zip".to_string());
+    
+    let download_path = temp_dir.join(&filename);
+    
+    // Download the file
+    let client = reqwest::Client::new();
+    let response = client.get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to download: {}", e))?;
+    
+    if !response.status().is_success() {
+        return Err(format!("Download failed with status: {}", response.status()));
+    }
+    
+    let bytes = response.bytes()
+        .await
+        .map_err(|e| format!("Failed to read download: {}", e))?;
+    
+    std::fs::write(&download_path, &bytes)
+        .map_err(|e| format!("Failed to save downloaded file: {}", e))?;
+    
+    tracing::info!("Downloaded {} bytes to {:?}", bytes.len(), download_path);
+    
+    // Now import from the downloaded file
+    let options = ImportOptions {
+        name_override: name_override.clone(),
+        instances_dir: instances_dir.clone(),
+    };
+    
+    let result = core_import_instance(&download_path, &options, None)
+        .await
+        .map_err(|e| format!("Import failed: {}", e))?;
+    
+    // Clean up downloaded file
+    let _ = std::fs::remove_file(&download_path);
+    
+    // Create the actual instance (same logic as import_instance_from_file)
+    let new_id = uuid::Uuid::new_v4().to_string();
+    let instance_path = instances_dir.join(&new_id);
+    let game_dir = instance_path.join(".minecraft");
+    
+    std::fs::create_dir_all(&game_dir)
+        .map_err(|e| format!("Failed to create instance directory: {}", e))?;
+    
+    // Move overrides to game directory
+    if let Some(overrides_path) = &result.overrides_path {
+        if overrides_path.exists() {
+            copy_dir_all(overrides_path, &game_dir)
+                .map_err(|e| format!("Failed to copy overrides: {}", e))?;
+            let _ = std::fs::remove_dir_all(overrides_path);
+        }
+    }
+    
+    // Create mod loader
+    let mod_loader = result.mod_loader.as_ref().map(|(loader_type, version)| {
+        let lt = match loader_type.as_str() {
+            "forge" => ModLoaderType::Forge,
+            "neoforge" => ModLoaderType::NeoForge,
+            "fabric" => ModLoaderType::Fabric,
+            "quilt" => ModLoaderType::Quilt,
+            "liteloader" => ModLoaderType::LiteLoader,
+            _ => ModLoaderType::Fabric,
+        };
+        ModLoader {
+            loader_type: lt,
+            version: version.clone(),
+        }
+    });
+    
+    // Create managed pack
+    let managed_pack = result.managed_pack.as_ref().map(|mp| {
+        let platform = match mp.platform.as_str() {
+            "modrinth" => ModpackPlatform::Modrinth,
+            "curseforge" => ModpackPlatform::CurseForge,
+            "atlauncher" => ModpackPlatform::ATLauncher,
+            "technic" => ModpackPlatform::Technic,
+            "ftb" => ModpackPlatform::FTB,
+            _ => ModpackPlatform::Modrinth,
+        };
+        ManagedPack {
+            platform,
+            pack_id: mp.pack_id.clone(),
+            pack_name: mp.pack_name.clone(),
+            version_id: mp.version_id.clone(),
+            version_name: mp.version_name.clone(),
+        }
+    });
+    
+    // Create instance settings
+    let settings = crate::core::instance::InstanceSettings {
+        jvm_args: result.settings.jvm_args.clone(),
+        game_args: result.settings.game_args.clone(),
+        min_memory: result.settings.min_memory,
+        max_memory: result.settings.max_memory,
+        window_width: result.settings.window_width,
+        window_height: result.settings.window_height,
+        fullscreen: result.settings.fullscreen,
+        ..Default::default()
+    };
+    
+    // Determine icon
+    let icon = result.icon.as_ref().map(|i| {
+        match i {
+            crate::core::instance::OxideIcon::Default { name } => name.clone(),
+            crate::core::instance::OxideIcon::Custom { filename, .. } => format!("custom:{}", filename),
+        }
+    }).unwrap_or_else(|| "grass".to_string());
+    
+    // Create the instance
+    let instance = Instance::new(
+        result.name.clone(),
+        instance_path.clone(),
+        result.minecraft_version.clone(),
+    );
+    
+    let instance = Instance {
+        id: new_id.clone(),
+        mod_loader: mod_loader.clone(),
+        managed_pack,
+        settings,
+        icon,
+        notes: result.notes.clone(),
+        total_played_seconds: result.playtime,
+        ..instance
+    };
+    
+    // Save the instance
+    instance.save()
+        .map_err(|e| format!("Failed to save instance: {}", e))?;
+    
+    // Install modloader if present
+    if instance.mod_loader.is_some() {
+        tracing::info!("Installing modloader for imported instance...");
+        
+        let libraries_dir = {
+            let config = state.config.lock().unwrap();
+            config.libraries_dir()
+        };
+        
+        install_modloader_for_instance(&instance, &libraries_dir)
+            .await
+            .map_err(|e| format!("Failed to install modloader: {}", e))?;
+        
+        tracing::info!("Modloader installed successfully");
+    }
+    
+    // Add to state
+    let mut instances = state.instances.lock().unwrap();
+    instances.push(instance);
+    
+    // Prepare warnings
+    let mut warnings = Vec::new();
+    if !result.files_to_download.is_empty() {
+        warnings.push(format!("{} files need to be downloaded", result.files_to_download.len()));
+    }
+    
+    let result_info = ImportResultInfo {
+        instance_id: new_id,
+        name: result.name,
+        minecraft_version: result.minecraft_version,
+        mod_loader_type: mod_loader.as_ref().map(|m| m.loader_type.name().to_string()),
+        mod_loader_version: mod_loader.as_ref().map(|m| m.version.clone()),
+        files_to_download: result.files_to_download.len(),
+        warnings,
+    };
+    
+    tracing::info!("Imported instance from URL: {}", result_info.name);
     
     Ok(result_info)
 }

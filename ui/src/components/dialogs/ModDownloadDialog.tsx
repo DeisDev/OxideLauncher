@@ -194,6 +194,10 @@ export function ModDownloadDialog({
   const [availableCategories, setAvailableCategories] = useState<string[]>([]);
   const [showCategoryFilter, setShowCategoryFilter] = useState(false);
   
+  // Environment filter state (client/server side)
+  const [clientSide, setClientSide] = useState<string>("");
+  const [serverSide, setServerSide] = useState<string>("");
+  
   // Queue state
   const [queue, setQueue] = useState<QueuedMod[]>([]);
 
@@ -275,6 +279,9 @@ export function ModDownloadDialog({
         sortBy: effectiveSortBy,
         limit: effectivePageSize,
         offset,
+        categories: effectiveCategories.length > 0 ? effectiveCategories : null,
+        clientSide: clientSide || null,
+        serverSide: serverSide || null,
       });
       
       // Extract all unique categories from results
@@ -284,15 +291,8 @@ export function ModDownloadDialog({
       });
       setAvailableCategories(Array.from(allCategories).sort());
       
-      // Filter by selected categories if any
-      if (effectiveCategories.length > 0) {
-        const filtered = response.mods.filter(mod =>
-          effectiveCategories.some(cat => mod.categories.includes(cat))
-        );
-        setSearchResults(filtered);
-      } else {
-        setSearchResults(response.mods);
-      }
+      // API-side filtering is now used, so no need to filter here
+      setSearchResults(response.mods);
       
       setTotalHits(response.total_hits);
       setCurrentPage(effectivePage);
@@ -749,6 +749,64 @@ export function ModDownloadDialog({
                         </Badge>
                       ))}
                     </div>
+                    
+                    {/* Environment Filters - Only for Modrinth */}
+                    {platform === "modrinth" && (
+                      <>
+                        <Separator className="my-3" />
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-medium text-muted-foreground uppercase">Environment</span>
+                          {(clientSide || serverSide) && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 text-xs px-2"
+                              onClick={() => { setClientSide(""); setServerSide(""); searchMods(searchQuery, sortBy, selectedCategories, 1); }}
+                            >
+                              Clear
+                            </Button>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-xs text-muted-foreground mb-1 block">Client Side</label>
+                            <Select value={clientSide || "__all__"} onValueChange={(v) => { setClientSide(v === "__all__" ? "" : v); }}>
+                              <SelectTrigger className="h-8 text-xs">
+                                <SelectValue placeholder="Any" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__all__">Any</SelectItem>
+                                <SelectItem value="required">Required</SelectItem>
+                                <SelectItem value="optional">Optional</SelectItem>
+                                <SelectItem value="unsupported">Not Needed</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <label className="text-xs text-muted-foreground mb-1 block">Server Side</label>
+                            <Select value={serverSide || "__all__"} onValueChange={(v) => { setServerSide(v === "__all__" ? "" : v); }}>
+                              <SelectTrigger className="h-8 text-xs">
+                                <SelectValue placeholder="Any" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__all__">Any</SelectItem>
+                                <SelectItem value="required">Required</SelectItem>
+                                <SelectItem value="optional">Optional</SelectItem>
+                                <SelectItem value="unsupported">Not Needed</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                        <Button 
+                          variant="secondary" 
+                          size="sm" 
+                          className="w-full mt-3 h-7 text-xs"
+                          onClick={() => searchMods(searchQuery, sortBy, selectedCategories, 1)}
+                        >
+                          Apply Filters
+                        </Button>
+                      </>
+                    )}
                   </div>
                 )}
               </div>

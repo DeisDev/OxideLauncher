@@ -100,9 +100,10 @@ export function Layout({ children }: LayoutProps) {
     { id: "assets", label: "Assets", action: () => openFolder("assets") },
     { id: "libraries", label: "Libraries", action: () => openFolder("libraries") },
     { id: "icons", label: "Icons", action: () => openFolder("icons") },
+    { id: "skins", label: "Skins", action: () => openFolder("skins") },
   ];
 
-  // Help menu items
+  // Help menu items - About moved to bottom for consistency
   const helpItems = [
     { 
       id: "bug", 
@@ -117,13 +118,6 @@ export function Layout({ children }: LayoutProps) {
       action: () => openExternalLink("https://github.com/DeisDev/OxideLauncher/issues/new?template=feature_request.md")
     },
     { id: "divider1", divider: true },
-    { 
-      id: "about", 
-      label: "About Oxide Launcher", 
-      icon: Info,
-      action: () => setAboutDialogOpen(true)
-    },
-    { id: "divider2", divider: true },
     { 
       id: "discord", 
       label: "Discord", 
@@ -147,6 +141,13 @@ export function Layout({ children }: LayoutProps) {
       label: "Documentation", 
       icon: BookOpen,
       action: () => openExternalLink("https://github.com/DeisDev/OxideLauncher/wiki")
+    },
+    { id: "divider2", divider: true },
+    { 
+      id: "about", 
+      label: "About", 
+      icon: Info,
+      action: () => setAboutDialogOpen(true)
     },
   ];
 

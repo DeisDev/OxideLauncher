@@ -730,6 +730,9 @@ pub async fn search_mods_detailed(
     sort_by: String,
     limit: u32,
     offset: Option<u32>,
+    categories: Option<Vec<String>>,
+    client_side: Option<String>,
+    server_side: Option<String>,
 ) -> Result<ModSearchResponse, String> {
     use crate::core::modplatform::types::SortOrder;
     
@@ -750,10 +753,12 @@ pub async fn search_mods_detailed(
         _ => SortOrder::Downloads,
     };
     
+    let category_list = categories.unwrap_or_default();
+    
     let search_query = SearchQuery {
         query: query.clone(),
         resource_type: Some(ResourceType::Mod),
-        categories: vec![],
+        categories: category_list,
         game_versions: vec![minecraft_version.clone()],
         loaders: loaders.clone(),
         sort,
@@ -796,7 +801,7 @@ pub async fn search_mods_detailed(
         _ => {
             let client = ModrinthClient::new();
             
-            let results = client.search(&search_query)
+            let results = client.search_with_environment(&search_query, client_side.as_deref(), server_side.as_deref())
                 .await
                 .map_err(|e| format!("Failed to search Modrinth: {}", e))?;
             

@@ -11,16 +11,16 @@ export type TabType =
   | "screenshots"
   | "settings";
 
-export const TABS: { id: TabType; label: string }[] = [
-  { id: "log", label: "Minecraft Log" },
-  { id: "version", label: "Version" },
-  { id: "mods", label: "Mods" },
-  { id: "resourcepacks", label: "Resource Packs" },
-  { id: "shaderpacks", label: "Shader Packs" },
-  { id: "notes", label: "Notes" },
-  { id: "worlds", label: "Worlds" },
-  { id: "screenshots", label: "Screenshots" },
-  { id: "settings", label: "Settings" },
+export const TABS: { id: TabType; label: string; shortLabel: string }[] = [
+  { id: "log", label: "Minecraft Log", shortLabel: "Log" },
+  { id: "version", label: "Version", shortLabel: "Ver" },
+  { id: "mods", label: "Mods", shortLabel: "Mods" },
+  { id: "resourcepacks", label: "Resource Packs", shortLabel: "Res" },
+  { id: "shaderpacks", label: "Shader Packs", shortLabel: "Shd" },
+  { id: "notes", label: "Notes", shortLabel: "Notes" },
+  { id: "worlds", label: "Worlds", shortLabel: "Worlds" },
+  { id: "screenshots", label: "Screenshots", shortLabel: "Shots" },
+  { id: "settings", label: "Settings", shortLabel: "Set" },
 ];
 
 export interface InstanceInfo {

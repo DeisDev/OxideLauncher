@@ -11,7 +11,7 @@ categories = ["games"]
 
 [dependencies]
 # Tauri Framework
-tauri = { version = "2.1", features = [] }
+tauri = { version = "2.1", features = ["devtools"] }
 tauri-plugin-shell = "2.1"
 tauri-plugin-dialog = "2"
 
@@ -63,6 +63,8 @@ regex = "1"
 lazy_static = "1"
 hex = "0.4"
 rust-ini = "0.21"
+quick-xml = "0.37"
+urlencoding = "2"
 
 # Image processing
 image = "0.25"

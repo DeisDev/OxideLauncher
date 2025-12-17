@@ -191,7 +191,7 @@ export function SettingsTab({ instanceId, instance }: SettingsTabProps) {
     <ScrollArea className="h-full">
       <div className="space-y-6 pr-4 pb-4">
         <Tabs defaultValue="general" className="w-full">
-          <TabsList className="grid w-full grid-cols-5 mb-4">
+          <TabsList className="grid w-full grid-cols-3 sm:grid-cols-5 mb-4">
             <TabsTrigger value="general">General</TabsTrigger>
             <TabsTrigger value="java">Java</TabsTrigger>
             <TabsTrigger value="memory">Memory</TabsTrigger>
@@ -297,48 +297,50 @@ export function SettingsTab({ instanceId, instance }: SettingsTabProps) {
                     No Java installations detected.
                   </p>
                 ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-10"></TableHead>
-                        <TableHead>Version</TableHead>
-                        <TableHead>Vendor</TableHead>
-                        <TableHead>Architecture</TableHead>
-                        <TableHead>Path</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {detectedJavas.map((java) => (
-                        <TableRow
-                          key={java.path}
-                          className={cn(
-                            "cursor-pointer",
-                            settings.java_path === java.path && "bg-muted"
-                          )}
-                          onClick={() => updateSetting("java_path", java.path)}
-                        >
-                          <TableCell>
-                            {settings.java_path === java.path && (
-                              <Check className="h-4 w-4 text-primary" />
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              <span>Java {java.major_version}</span>
-                              {java.major_version >= recommendedJava && (
-                                <Badge variant="secondary" className="text-xs">Compatible</Badge>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell>{java.vendor}</TableCell>
-                          <TableCell>{java.architecture}</TableCell>
-                          <TableCell className="text-xs text-muted-foreground max-w-xs truncate">
-                            {java.path}
-                          </TableCell>
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-10"></TableHead>
+                          <TableHead>Version</TableHead>
+                          <TableHead className="hidden sm:table-cell">Vendor</TableHead>
+                          <TableHead className="hidden md:table-cell">Architecture</TableHead>
+                          <TableHead className="hidden lg:table-cell">Path</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                      </TableHeader>
+                      <TableBody>
+                        {detectedJavas.map((java) => (
+                          <TableRow
+                            key={java.path}
+                            className={cn(
+                              "cursor-pointer",
+                              settings.java_path === java.path && "bg-muted"
+                            )}
+                            onClick={() => updateSetting("java_path", java.path)}
+                          >
+                            <TableCell>
+                              {settings.java_path === java.path && (
+                                <Check className="h-4 w-4 text-primary" />
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                                <span>Java {java.major_version}</span>
+                                {java.major_version >= recommendedJava && (
+                                  <Badge variant="secondary" className="text-xs w-fit">Compatible</Badge>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell className="hidden sm:table-cell">{java.vendor}</TableCell>
+                            <TableCell className="hidden md:table-cell">{java.architecture}</TableCell>
+                            <TableCell className="hidden lg:table-cell text-xs text-muted-foreground max-w-xs truncate">
+                              {java.path}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
                 )}
               </CardContent>
             </Card>

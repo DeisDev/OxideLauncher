@@ -138,27 +138,27 @@ export function SettingsLayout() {
 
   return (
     <SettingsContext.Provider value={{ config, setConfig: setConfigWithSave, saveConfig: async () => {}, loading }}>
-      <div className="flex h-full">
+      <div className="flex flex-col md:flex-row h-full">
         {/* Sidebar Navigation */}
-        <div className="w-64 border-r flex flex-col">
+        <div className="w-full md:w-56 lg:w-64 border-b md:border-b-0 md:border-r flex flex-col flex-shrink-0">
           <div className="p-4 pb-2">
             <h1 className="text-xl font-bold">Settings</h1>
           </div>
           <ScrollArea className="flex-1">
-            <div className="p-3 pt-2 space-y-2">
+            <div className="p-3 pt-2 flex md:flex-col gap-2 overflow-x-auto md:overflow-x-visible">
               {NAV_ITEMS.map((item) => (
                 <button
                   key={item.id}
                   onClick={() => setActiveTab(item.id)}
                   className={cn(
-                    "w-full flex items-start gap-3 p-3 rounded-lg text-left transition-colors",
+                    "flex items-start gap-2 md:gap-3 p-2 md:p-3 rounded-lg text-left transition-colors flex-shrink-0 md:flex-shrink md:w-full",
                     activeTab === item.id
                       ? "bg-primary text-primary-foreground"
                       : "hover:bg-muted"
                   )}
                 >
                   <div className="mt-0.5 flex-shrink-0">{item.icon}</div>
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 flex-1 hidden md:block">
                     <p className="font-medium text-sm leading-tight">{item.label}</p>
                     <p
                       className={cn(
@@ -171,6 +171,7 @@ export function SettingsLayout() {
                       {item.description}
                     </p>
                   </div>
+                  <span className="md:hidden text-xs font-medium">{item.label}</span>
                 </button>
               ))}
             </div>

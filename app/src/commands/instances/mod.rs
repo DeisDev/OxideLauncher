@@ -44,6 +44,7 @@ pub struct InstanceInfo {
     pub icon: Option<String>,
     pub last_played: Option<String>,
     pub total_played_seconds: u64,
+    pub group: Option<String>,
 }
 
 impl From<&Instance> for InstanceInfo {
@@ -61,6 +62,7 @@ impl From<&Instance> for InstanceInfo {
             icon: Some(inst.icon.clone()),
             last_played: inst.last_played.map(|dt| dt.to_string()),
             total_played_seconds: inst.total_played_seconds,
+            group: inst.group.clone(),
         }
     }
 }
@@ -72,6 +74,7 @@ pub struct CreateInstanceRequest {
     pub minecraft_version: String,
     pub mod_loader_type: String,
     pub loader_version: Option<String>,
+    pub group: Option<String>,
 }
 
 /// Instance settings update payload

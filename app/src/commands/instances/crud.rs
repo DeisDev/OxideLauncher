@@ -59,6 +59,13 @@ pub async fn create_instance(
     
     instance.mod_loader = mod_loader;
     
+    // Set group if provided
+    if let Some(group) = request.group {
+        if !group.is_empty() {
+            instance.group = Some(group);
+        }
+    }
+    
     // Save instance to file
     instance.save()
         .map_err(|e| format!("Failed to save instance: {}", e))?;

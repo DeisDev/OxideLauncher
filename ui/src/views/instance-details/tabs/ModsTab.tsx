@@ -17,6 +17,9 @@ import {
   Bug,
   Code,
   Link as LinkIcon,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -57,6 +60,10 @@ import type { InstanceInfo, InstalledMod } from "../types";
 import { formatFileSize } from "../utils";
 import { ModDownloadDialog } from "@/components/dialogs/ModDownloadDialog";
 
+// Sort column types
+type SortColumn = "name" | "version" | "modified" | "provider" | "size";
+type SortDirection = "asc" | "desc";
+
 interface ModsTabProps {
   instanceId: string;
   instance: InstanceInfo;
@@ -70,21 +77,76 @@ export function ModsTab({ instanceId, instance }: ModsTabProps) {
   const [deleteModDialog, setDeleteModDialog] = useState<string | null>(null);
   const [showModDownloadDialog, setShowModDownloadDialog] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  
+  // Sorting state
+  const [sortColumn, setSortColumn] = useState<SortColumn>("name");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
 
   useEffect(() => {
     loadInstalledMods();
   }, [instanceId]);
 
+  // Filter and sort mods
   useEffect(() => {
+    let result = [...installedMods];
+    
+    // Apply filter
     if (modFilter) {
-      setFilteredMods(installedMods.filter(m => 
+      result = result.filter(m => 
         m.name.toLowerCase().includes(modFilter.toLowerCase()) ||
         m.filename.toLowerCase().includes(modFilter.toLowerCase())
-      ));
-    } else {
-      setFilteredMods(installedMods);
+      );
     }
-  }, [modFilter, installedMods]);
+    
+    // Apply sorting
+    result.sort((a, b) => {
+      let comparison = 0;
+      
+      switch (sortColumn) {
+        case "name":
+          comparison = a.name.localeCompare(b.name);
+          break;
+        case "version":
+          comparison = (a.version || "").localeCompare(b.version || "");
+          break;
+        case "modified":
+          comparison = (a.modified || "").localeCompare(b.modified || "");
+          break;
+        case "provider":
+          comparison = (a.provider || "").localeCompare(b.provider || "");
+          break;
+        case "size":
+          comparison = (a.size || 0) - (b.size || 0);
+          break;
+      }
+      
+      return sortDirection === "asc" ? comparison : -comparison;
+    });
+    
+    setFilteredMods(result);
+  }, [modFilter, installedMods, sortColumn, sortDirection]);
+
+  // Handle column header click for sorting
+  const handleSort = (column: SortColumn) => {
+    if (sortColumn === column) {
+      // Toggle direction if same column
+      setSortDirection(prev => prev === "asc" ? "desc" : "asc");
+    } else {
+      // New column, default to ascending
+      setSortColumn(column);
+      setSortDirection("asc");
+    }
+  };
+
+  // Render sort indicator
+  const SortIndicator = ({ column }: { column: SortColumn }) => {
+    if (sortColumn !== column) {
+      return <ArrowUpDown className="h-3 w-3 ml-1 opacity-30" />;
+    }
+    return sortDirection === "asc" 
+      ? <ArrowUp className="h-3 w-3 ml-1" />
+      : <ArrowDown className="h-3 w-3 ml-1" />;
+  };
 
   const loadInstalledMods = async () => {
     try {
@@ -293,14 +355,14 @@ export function ModsTab({ instanceId, instance }: ModsTabProps) {
     let unlisten: (() => void) | undefined;
 
     webview.onDragDropEvent((event) => {
-      if (event.payload.type === 'over') {
+      if (event.payload.type === 'over' || event.payload.type === 'enter') {
         setIsDragging(true);
       } else if (event.payload.type === 'drop') {
         setIsDragging(false);
         if (event.payload.paths && event.payload.paths.length > 0) {
           processDroppedPaths(event.payload.paths);
         }
-      } else if (event.payload.type === 'leave' || event.payload.type === 'cancel') {
+      } else if (event.payload.type === 'leave') {
         setIsDragging(false);
       }
     }).then(fn => {
@@ -465,12 +527,52 @@ export function ModsTab({ instanceId, instance }: ModsTabProps) {
                 </TableHead>
                 <TableHead className="w-10">On</TableHead>
                 <TableHead className="w-10"></TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead className="w-32">Version</TableHead>
-                <TableHead className="w-36">Last Modified</TableHead>
-                <TableHead className="w-24">Provider</TableHead>
+                <TableHead 
+                  className="cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort("name")}
+                >
+                  <div className="flex items-center">
+                    Name
+                    <SortIndicator column="name" />
+                  </div>
+                </TableHead>
+                <TableHead 
+                  className="w-32 cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort("version")}
+                >
+                  <div className="flex items-center">
+                    Version
+                    <SortIndicator column="version" />
+                  </div>
+                </TableHead>
+                <TableHead 
+                  className="w-36 cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort("modified")}
+                >
+                  <div className="flex items-center">
+                    Last Modified
+                    <SortIndicator column="modified" />
+                  </div>
+                </TableHead>
+                <TableHead 
+                  className="w-24 cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort("provider")}
+                >
+                  <div className="flex items-center">
+                    Provider
+                    <SortIndicator column="provider" />
+                  </div>
+                </TableHead>
                 <TableHead className="w-24">Links</TableHead>
-                <TableHead className="w-20 text-right">Size</TableHead>
+                <TableHead 
+                  className="w-20 cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort("size")}
+                >
+                  <div className="flex items-center justify-end">
+                    Size
+                    <SortIndicator column="size" />
+                  </div>
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
