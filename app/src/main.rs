@@ -167,6 +167,13 @@ fn main() {
             commands::instances::detect_import_format,
             commands::instances::import_instance_from_file,
             commands::instances::import_instance_from_url,
+            // Blocked mods commands
+            commands::instances::resolve_blocked_files,
+            commands::instances::get_blocked_mods_info,
+            commands::instances::scan_for_blocked_mod_files,
+            commands::instances::copy_blocked_mods_to_instance,
+            commands::instances::start_blocked_mods_watcher,
+            commands::instances::get_downloads_dir,
             // Modpack commands
             commands::modpacks::search_modpacks,
             commands::modpacks::get_modpack_details,

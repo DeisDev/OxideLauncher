@@ -10,15 +10,13 @@ import {
   SourceType, 
   SOURCES 
 } from "./create-instance";
-import { ModpackDownloadDialog } from "@/components/dialogs/ModpackDownloadDialog";
+import { openDialogWindow, WINDOW_LABELS, setupDialogEventListeners } from "@/lib/windowManager";
 
 export function CreateInstanceView() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const initialSource = (searchParams.get("source") as SourceType) || "custom";
   const [activeSource, setActiveSource] = useState<SourceType>(initialSource);
-  
-  // Modpack dialog state
   const [modpackDialogOpen, setModpackDialogOpen] = useState(false);
 
   // Update active source when URL params change
@@ -28,6 +26,28 @@ export function CreateInstanceView() {
       setActiveSource(source);
     }
   }, [searchParams]);
+
+  // Listen for modpack dialog open/close events
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+    
+    setupDialogEventListeners(
+      (label) => {
+        if (label === WINDOW_LABELS.MODPACK_BROWSER) {
+          setModpackDialogOpen(true);
+        }
+      },
+      () => {
+        setModpackDialogOpen(false);
+      }
+    ).then(fn => {
+      cleanup = fn;
+    });
+    
+    return () => {
+      if (cleanup) cleanup();
+    };
+  }, []);
   
   // Instance creation state for custom tab
   const [name, setName] = useState("");
@@ -59,9 +79,10 @@ export function CreateInstanceView() {
     }
   };
 
-  const handleSourceChange = (source: SourceType) => {
+  const handleSourceChange = async (source: SourceType) => {
     if (source === "modpacks") {
-      setModpackDialogOpen(true);
+      // Open modpack browser in a new window
+      await openDialogWindow(WINDOW_LABELS.MODPACK_BROWSER);
     } else {
       setActiveSource(source);
     }
@@ -85,22 +106,28 @@ export function CreateInstanceView() {
       <div className="flex flex-1 flex-col md:flex-row gap-3 md:gap-4 overflow-hidden">
         {/* Source Sidebar - horizontal on mobile */}
         <div className="flex md:flex-col md:w-40 flex-shrink-0 gap-1 overflow-x-auto pb-1 md:pb-0">
-          {SOURCES.map((source) => (
-            <button
-              key={source.id}
-              type="button"
-              className={cn(
-                "px-3 py-2 text-sm rounded-md transition-colors flex items-center gap-2 whitespace-nowrap md:w-full md:text-left",
-                activeSource === source.id && source.id !== "modpacks"
-                  ? "bg-primary text-primary-foreground"
-                  : "hover:bg-muted"
-              )}
-              onClick={() => handleSourceChange(source.id)}
-            >
-              {source.id === "modpacks" && <Package className="h-4 w-4" />}
-              {source.label}
-            </button>
-          ))}
+          {SOURCES.map((source) => {
+            const isActive = source.id === "modpacks" 
+              ? modpackDialogOpen 
+              : activeSource === source.id;
+            
+            return (
+              <button
+                key={source.id}
+                type="button"
+                className={cn(
+                  "px-3 py-2 text-sm rounded-md transition-colors flex items-center gap-2 whitespace-nowrap md:w-full md:text-left",
+                  isActive
+                    ? "bg-primary text-primary-foreground"
+                    : "hover:bg-muted"
+                )}
+                onClick={() => handleSourceChange(source.id)}
+              >
+                {source.id === "modpacks" && <Package className="h-4 w-4" />}
+                {source.label}
+              </button>
+            );
+          })}
         </div>
 
         {/* Main Content Area */}
@@ -143,13 +170,6 @@ export function CreateInstanceView() {
           </Button>
         </div>
       )}
-
-      {/* Modpack Download Dialog */}
-      <ModpackDownloadDialog
-        open={modpackDialogOpen}
-        onOpenChange={setModpackDialogOpen}
-        onModpackInstalled={() => navigate("/")}
-      />
     </div>
   );
 }

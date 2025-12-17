@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
+import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import {
   Plus, Play, Trash2, Info, Pencil, Folder, Copy, FileOutput, FileInput,
   Image, Settings, Square, FolderTree, Link as LinkIcon, Feather,
@@ -165,6 +166,18 @@ export function InstancesView() {
 
   useEffect(() => {
     loadInstances();
+    
+    // Listen for instances-changed event from dialog windows
+    let unlisten: UnlistenFn | undefined;
+    (async () => {
+      unlisten = await listen("instances-changed", () => {
+        loadInstances();
+      });
+    })();
+    
+    return () => {
+      unlisten?.();
+    };
   }, []);
 
   const loadInstances = async () => {

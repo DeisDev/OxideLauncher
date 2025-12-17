@@ -1,9 +1,11 @@
 import { useState } from "react";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -17,7 +19,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { HelpCircle } from "lucide-react";
+import { HelpCircle, FolderOpen } from "lucide-react";
 import { useSettings } from "./context";
 import type { ProxyType } from "./types";
 
@@ -173,6 +175,88 @@ export function DownloadSettings() {
               <span>0 (No Retry)</span>
               <span>10 (Max)</span>
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Downloads Folder - for blocked mods */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Downloads Folder</CardTitle>
+          <CardDescription>
+            Where to look for manually downloaded mod files. Used when some CurseForge mods require manual download.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <Input
+                value={config.network.downloads_dir || ""}
+                onChange={(e) =>
+                  setConfig({
+                    ...config,
+                    network: {
+                      ...config.network,
+                      downloads_dir: e.target.value || null,
+                    },
+                  })
+                }
+                placeholder="Leave empty to use system Downloads folder"
+                className="flex-1"
+              />
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={async () => {
+                  const selected = await openDialog({
+                    directory: true,
+                    multiple: false,
+                    title: "Select Downloads Folder",
+                  });
+                  if (selected && typeof selected === "string") {
+                    setConfig({
+                      ...config,
+                      network: {
+                        ...config.network,
+                        downloads_dir: selected,
+                      },
+                    });
+                  }
+                }}
+              >
+                <FolderOpen className="h-4 w-4" />
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Some CurseForge mods don't allow third-party launchers to download them. When this happens, you'll be shown a dialog to manually download them from CurseForge. The launcher will watch this folder for the files.
+            </p>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="watchRecursive" className="inline-flex items-center">
+                Search Subfolders
+                <SettingTooltip>
+                  When enabled, the launcher will also search inside subfolders of the downloads directory.
+                </SettingTooltip>
+              </Label>
+              <p className="text-sm text-muted-foreground">
+                Include subfolders when scanning for downloaded files.
+              </p>
+            </div>
+            <Switch
+              id="watchRecursive"
+              checked={config.network.downloads_dir_watch_recursive}
+              onCheckedChange={(checked) =>
+                setConfig({
+                  ...config,
+                  network: {
+                    ...config.network,
+                    downloads_dir_watch_recursive: checked,
+                  },
+                })
+              }
+            />
           </div>
         </CardContent>
       </Card>

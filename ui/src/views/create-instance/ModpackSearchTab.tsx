@@ -35,7 +35,6 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
-import { SourceType } from "./types";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 
 // Platform Logos
@@ -82,16 +81,12 @@ const PLATFORMS: { id: Platform; label: string; logo: React.FC<{ className?: str
 ];
 
 interface ModpackSearchTabProps {
-  activeSource: SourceType;
-  setActiveSource: (source: SourceType) => void;
   name: string;
   setName: (name: string) => void;
   group: string;
   setGroup: (group: string) => void;
   selectedModpack: ModpackResult | null;
   setSelectedModpack: (pack: ModpackResult | null) => void;
-  selectedModpackVersion: string;
-  setSelectedModpackVersion: (version: string) => void;
 }
 
 interface ModpackResult {
@@ -198,26 +193,17 @@ function formatDate(dateString: string): string {
 }
 
 export function ModpackSearchTab({
-  activeSource,
-  setActiveSource,
   name,
   setName,
   group,
   setGroup,
   selectedModpack,
   setSelectedModpack,
-  selectedModpackVersion,
-  setSelectedModpackVersion,
 }: ModpackSearchTabProps) {
   const navigate = useNavigate();
   
   // Platform state - support all 4 platforms
-  const [platform, setPlatform] = useState<Platform>(() => {
-    if (activeSource === "curseforge" || activeSource === "atlauncher" || activeSource === "ftb-legacy") {
-      return activeSource as Platform;
-    }
-    return "modrinth";
-  });
+  const [platform, setPlatform] = useState<Platform>("modrinth");
   
   // Check if current platform supports detailed views
   const currentPlatformConfig = PLATFORMS.find(p => p.id === platform);
@@ -287,7 +273,6 @@ export function ModpackSearchTab({
     setCurrentPage(1);
     setSelectedCategories([]);
     setAvailableCategories([]);
-    setActiveSource(newPlatform);
   };
 
   // Count active filters
@@ -421,7 +406,6 @@ export function ModpackSearchTab({
       // Auto-select first version
       if (versions.length > 0) {
         setSelectedModpackVer(versions[0]);
-        setSelectedModpackVersion(versions[0].id);
       }
     } catch (err) {
       console.error("Failed to load modpack details:", err);
@@ -914,7 +898,6 @@ export function ModpackSearchTab({
                       onValueChange={(v) => {
                         const version = modpackVersions.find(ver => ver.id === v);
                         setSelectedModpackVer(version || null);
-                        if (version) setSelectedModpackVersion(version.id);
                       }}
                     >
                       <SelectTrigger className="mt-1">

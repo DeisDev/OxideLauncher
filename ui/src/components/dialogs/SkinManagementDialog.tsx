@@ -34,8 +34,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   AccountInfo,
   PlayerProfileResponse,
-  SkinInfoResponse,
-  CapeInfoResponse,
   FetchedSkinResponse,
 } from "@/types";
 

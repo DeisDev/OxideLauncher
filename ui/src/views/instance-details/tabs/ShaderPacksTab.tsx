@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { listen } from "@tauri-apps/api/event";
 import { Trash2, RefreshCw, Package, FolderOpen, Download, Plus, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -25,7 +26,7 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { ResourceDownloadDialog } from "@/components/dialogs/ResourceDownloadDialog";
+import { openDialogWindow, WINDOW_LABELS } from "@/lib/windowManager";
 import type { ShaderPackInfo, InstanceInfo } from "../types";
 
 interface ShaderPacksTabProps {
@@ -37,12 +38,22 @@ export function ShaderPacksTab({ instanceId, instance }: ShaderPacksTabProps) {
   const [shaderPacks, setShaderPacks] = useState<ShaderPackInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [deleteDialog, setDeleteDialog] = useState<string | null>(null);
-  const [showDownloadDialog, setShowDownloadDialog] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const dropZoneRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadShaderPacks();
+    
+    // Listen for shaderpacks-changed event from resource browser window
+    const unlistenPromise = listen<{ instanceId: string }>("shaderpacks-changed", (event) => {
+      if (event.payload.instanceId === instanceId) {
+        loadShaderPacks();
+      }
+    });
+    
+    return () => {
+      unlistenPromise.then(unlisten => unlisten());
+    };
   }, [instanceId]);
 
   const loadShaderPacks = async () => {
@@ -232,7 +243,12 @@ export function ShaderPacksTab({ instanceId, instance }: ShaderPacksTabProps) {
               <Button 
                 variant="default" 
                 size="sm" 
-                onClick={() => setShowDownloadDialog(true)}
+                onClick={() => instance && openDialogWindow(WINDOW_LABELS.RESOURCE_BROWSER, {
+                  instanceId,
+                  instanceName: instance.name,
+                  minecraftVersion: instance.minecraft_version,
+                  resourceType: "shaderpack",
+                })}
                 disabled={!instance}
               >
                 <Download className="h-4 w-4 sm:mr-2" />
@@ -329,18 +345,6 @@ export function ShaderPacksTab({ instanceId, instance }: ShaderPacksTabProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {instance && (
-        <ResourceDownloadDialog
-          open={showDownloadDialog}
-          onOpenChange={setShowDownloadDialog}
-          instanceId={instanceId}
-          instanceName={instance.name}
-          minecraftVersion={instance.minecraft_version}
-          resourceType="shaderpack"
-          onResourcesInstalled={loadShaderPacks}
-        />
-      )}
     </>
   );
 }

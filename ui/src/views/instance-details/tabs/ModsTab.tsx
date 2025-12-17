@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { listen } from "@tauri-apps/api/event";
 import {
   Search,
   Download,
@@ -56,9 +57,9 @@ import {
   ContextMenuSubTrigger,
 } from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
+import { openDialogWindow, WINDOW_LABELS } from "@/lib/windowManager";
 import type { InstanceInfo, InstalledMod } from "../types";
 import { formatFileSize } from "../utils";
-import { ModDownloadDialog } from "@/components/dialogs/ModDownloadDialog";
 
 // Sort column types
 type SortColumn = "name" | "version" | "modified" | "provider" | "size";
@@ -75,7 +76,6 @@ export function ModsTab({ instanceId, instance }: ModsTabProps) {
   const [modFilter, setModFilter] = useState("");
   const [selectedMods, setSelectedMods] = useState<Set<string>>(new Set());
   const [deleteModDialog, setDeleteModDialog] = useState<string | null>(null);
-  const [showModDownloadDialog, setShowModDownloadDialog] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   
   // Sorting state
@@ -84,6 +84,17 @@ export function ModsTab({ instanceId, instance }: ModsTabProps) {
 
   useEffect(() => {
     loadInstalledMods();
+    
+    // Listen for mods-changed event from mod browser window
+    const unlistenPromise = listen<{ instanceId: string }>("mods-changed", (event) => {
+      if (event.payload.instanceId === instanceId) {
+        loadInstalledMods();
+      }
+    });
+    
+    return () => {
+      unlistenPromise.then(unlisten => unlisten());
+    };
   }, [instanceId]);
 
   // Filter and sort mods
@@ -428,7 +439,12 @@ export function ModsTab({ instanceId, instance }: ModsTabProps) {
         <Button 
           variant="default" 
           size="sm" 
-          onClick={() => setShowModDownloadDialog(true)}
+          onClick={() => openDialogWindow(WINDOW_LABELS.MOD_BROWSER, {
+            instanceId,
+            instanceName: instance.name,
+            minecraftVersion: instance.minecraft_version,
+            modLoader: instance.mod_loader || "Fabric",
+          })}
         >
           <Download className="mr-2 h-4 w-4" />
           Download Mods
@@ -769,17 +785,6 @@ export function ModsTab({ instanceId, instance }: ModsTabProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {/* Mod Download Dialog */}
-      <ModDownloadDialog
-        open={showModDownloadDialog}
-        onOpenChange={setShowModDownloadDialog}
-        instanceId={instanceId}
-        instanceName={instance.name}
-        minecraftVersion={instance.minecraft_version}
-        modLoader={instance.mod_loader}
-        onModsInstalled={loadInstalledMods}
-      />
     </div>
   );
 }

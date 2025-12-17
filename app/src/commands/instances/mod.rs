@@ -8,6 +8,7 @@
 //! - `folders` - Folder opening utilities
 //! - `transfer` - Import/Export functionality
 //! - `settings` - Instance settings management
+//! - `blocked_mods` - Blocked mod handling for CurseForge
 
 mod crud;
 mod launch;
@@ -16,6 +17,7 @@ mod jarmods;
 mod folders;
 mod transfer;
 mod settings;
+pub mod blocked_mods;
 
 // Re-export all commands for registration in main.rs
 pub use crud::*;
@@ -25,6 +27,7 @@ pub use jarmods::*;
 pub use folders::*;
 pub use transfer::*;
 pub use settings::*;
+pub use blocked_mods::*;
 
 use crate::core::instance::{Instance, ModLoader, ModLoaderType};
 use serde::{Deserialize, Serialize};

@@ -548,12 +548,17 @@ async fn get_curseforge_modpack_details(id: &str) -> Result<ModpackDetails, Stri
         .await
         .map_err(|e| format!("Failed to get modpack details: {}", e))?;
     
+    // Fetch the full description body separately
+    let body = client.get_mod_description(mod_id)
+        .await
+        .unwrap_or_default();
+    
     Ok(ModpackDetails {
         id: project.id,
         slug: project.slug,
         name: project.title,
         description: project.description,
-        body: project.body,
+        body,
         author: project.author,
         icon_url: project.icon_url,
         downloads: project.downloads,

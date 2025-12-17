@@ -1,4 +1,4 @@
-import { ReactNode, useState } from "react";
+import { ReactNode, useState, useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { 
   Gamepad2, User, Settings, Newspaper, Download, FolderOpen, 
@@ -20,6 +20,11 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { 
+  setupMainWindowCloseHandler, 
+  setupDialogEventListeners,
+  focusCurrentDialog,
+} from "@/lib/windowManager";
 
 interface LayoutProps {
   children: ReactNode;
@@ -80,8 +85,34 @@ export function Layout({ children }: LayoutProps) {
   const [foldersOpen, setFoldersOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [aboutDialogOpen, setAboutDialogOpen] = useState(false);
+  const [dialogOverlayVisible, setDialogOverlayVisible] = useState(false);
 
   const showNews = config?.ui.show_news ?? false;
+
+  // Setup main window close handler and dialog event listeners
+  useEffect(() => {
+    // Setup handler to close dialogs when main window closes
+    setupMainWindowCloseHandler();
+    
+    // Setup listeners for dialog open/close events
+    const setupListeners = async () => {
+      const cleanup = await setupDialogEventListeners(
+        () => {
+          setDialogOverlayVisible(true);
+        },
+        () => {
+          setDialogOverlayVisible(false);
+        }
+      );
+      return cleanup;
+    };
+    
+    const cleanupPromise = setupListeners();
+    
+    return () => {
+      cleanupPromise.then(cleanup => cleanup());
+    };
+  }, []);
 
   // Main navigation items
   const navItems = [
@@ -264,6 +295,23 @@ export function Layout({ children }: LayoutProps) {
 
       {/* About Dialog */}
       <AboutDialog open={aboutDialogOpen} onOpenChange={setAboutDialogOpen} />
+      
+      {/* Dialog Window Overlay - blocks interaction with main window when dialog is open */}
+      {dialogOverlayVisible && (
+        <div 
+          className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center cursor-pointer"
+          onClick={() => focusCurrentDialog()}
+        >
+          <div className="text-center space-y-2 pointer-events-none">
+            <p className="text-muted-foreground text-sm">
+              A dialog window is open
+            </p>
+            <p className="text-xs text-muted-foreground/70">
+              Click anywhere to focus the dialog
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

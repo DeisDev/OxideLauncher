@@ -160,6 +160,16 @@ impl Config {
         self.data_dir.join("logs")
     }
 
+    /// Get the downloads directory for blocked mods
+    /// Falls back to system downloads folder if not configured
+    pub fn downloads_dir(&self) -> PathBuf {
+        self.network.downloads_dir
+            .clone()
+            .unwrap_or_else(|| {
+                dirs::download_dir().unwrap_or_else(|| self.data_dir.join("downloads"))
+            })
+    }
+
     /// Set the theme name
     pub fn set_theme(&mut self, theme: &str) {
         self.theme = theme.to_string();
@@ -228,6 +238,14 @@ pub struct NetworkConfig {
     /// User agent string
     #[serde(default = "default_user_agent")]
     pub user_agent: String,
+
+    /// Directory to watch for manually downloaded blocked mods
+    #[serde(default)]
+    pub downloads_dir: Option<PathBuf>,
+
+    /// Whether to watch downloads directory recursively
+    #[serde(default)]
+    pub downloads_dir_watch_recursive: bool,
 }
 
 impl Default for NetworkConfig {
@@ -238,6 +256,8 @@ impl Default for NetworkConfig {
             download_retries: default_download_retries(),
             timeout_seconds: default_timeout(),
             user_agent: default_user_agent(),
+            downloads_dir: None,
+            downloads_dir_watch_recursive: false,
         }
     }
 }

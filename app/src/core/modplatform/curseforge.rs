@@ -161,6 +161,17 @@ impl CurseForgeClient {
         
         Ok(response.data)
     }
+
+    /// Get mod description (full HTML body)
+    pub async fn get_mod_description(&self, mod_id: u32) -> Result<String> {
+        let response: CurseForgeDescriptionResponse = self.request(reqwest::Method::GET, &format!("/mods/{}/description", mod_id))?
+            .send()
+            .await?
+            .json()
+            .await?;
+        
+        Ok(response.data)
+    }
 }
 
 impl Default for CurseForgeClient {
@@ -482,5 +493,10 @@ impl CurseForgeFile {
 
 #[derive(Debug, Deserialize)]
 struct CurseForgeDownloadUrlResponse {
+    data: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct CurseForgeDescriptionResponse {
     data: String,
 }

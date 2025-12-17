@@ -1,4 +1,4 @@
-import { HashRouter as Router, Routes, Route } from "react-router-dom";
+import { HashRouter as Router, Routes, Route, Outlet } from "react-router-dom";
 import { Layout } from "./components/Layout";
 import { ThemeProvider } from "./hooks/useTheme";
 import { ConfigProvider } from "./hooks/useConfig";
@@ -9,14 +9,30 @@ import { SettingsView } from "./views/SettingsView";
 import { CreateInstanceView } from "./views/CreateInstanceView";
 import { NewsView } from "./views/NewsView";
 import { UpdateView } from "./views/UpdateView";
+import { ModpackBrowserPage, ModBrowserPage, ResourceBrowserPage } from "./views/dialogs";
+
+// Layout wrapper component that renders children via Outlet
+function MainLayout() {
+  return (
+    <Layout>
+      <Outlet />
+    </Layout>
+  );
+}
 
 function App() {
   return (
     <ConfigProvider>
       <ThemeProvider>
         <Router>
-          <Layout>
-            <Routes>
+          <Routes>
+            {/* Dialog pages - rendered without main Layout */}
+            <Route path="/dialog/modpack-browser" element={<ModpackBrowserPage />} />
+            <Route path="/dialog/mod-browser" element={<ModBrowserPage />} />
+            <Route path="/dialog/resource-browser" element={<ResourceBrowserPage />} />
+            
+            {/* Main app routes with Layout */}
+            <Route element={<MainLayout />}>
               <Route path="/" element={<InstancesView />} />
               <Route path="/instance/:id" element={<InstanceDetailsView />} />
               <Route path="/create-instance" element={<CreateInstanceView />} />
@@ -24,8 +40,8 @@ function App() {
               <Route path="/accounts" element={<AccountsView />} />
               <Route path="/settings" element={<SettingsView />} />
               <Route path="/update" element={<UpdateView />} />
-            </Routes>
-          </Layout>
+            </Route>
+          </Routes>
         </Router>
       </ThemeProvider>
     </ConfigProvider>

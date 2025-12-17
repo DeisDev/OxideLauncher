@@ -5,8 +5,10 @@ use crate::core::instance::{
     export_instance as core_export_instance, ExportOptions,
     import_instance as core_import_instance, detect_import_type, ImportOptions, ImportType,
     ModLoader, ModLoaderType, ManagedPack, ModpackPlatform, Instance,
-    install_modloader_for_instance,
+    install_modloader_for_instance, FileToDownload,
 };
+use crate::core::modplatform::curseforge::CurseForgeClient;
+use crate::core::download::download_file;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tauri::State;
@@ -59,6 +61,16 @@ pub struct ImportResultInfo {
     pub mod_loader_version: Option<String>,
     pub files_to_download: usize,
     pub warnings: Vec<String>,
+    /// Files that need manual download due to CurseForge restrictions
+    pub blocked_files: Vec<BlockedFileInfo>,
+}
+
+/// Info about a blocked file that needs manual download
+#[derive(Debug, Clone, Serialize)]
+pub struct BlockedFileInfo {
+    pub project_id: String,
+    pub file_id: String,
+    pub filename: String,
 }
 
 /// Detected import type info
@@ -313,14 +325,29 @@ pub async fn import_instance_from_file(
         tracing::info!("Modloader installed successfully");
     }
     
-    // Add to state
-    let mut instances = state.instances.lock().unwrap();
-    instances.push(instance);
+    // Add to state (using block to ensure lock is dropped before async ops)
+    {
+        let mut instances = state.instances.lock().unwrap();
+        instances.push(instance.clone());
+    }
+    
+    // Download files that need API resolution (CurseForge modpacks)
+    let (download_warnings, blocked_files) = if !result.files_to_download.is_empty() {
+        tracing::info!("Downloading {} modpack files...", result.files_to_download.len());
+        let mods_dir = game_dir.join("mods");
+        std::fs::create_dir_all(&mods_dir)
+            .map_err(|e| format!("Failed to create mods directory: {}", e))?;
+        
+        let dl_result = download_curseforge_files(&result.files_to_download, &mods_dir).await;
+        (dl_result.warnings, dl_result.blocked_files)
+    } else {
+        (Vec::new(), Vec::new())
+    };
     
     // Prepare warnings
     let mut warnings = Vec::new();
-    if !result.files_to_download.is_empty() {
-        warnings.push(format!("{} files need to be downloaded", result.files_to_download.len()));
+    if !download_warnings.is_empty() {
+        warnings.extend(download_warnings);
     }
     
     let result_info = ImportResultInfo {
@@ -331,6 +358,7 @@ pub async fn import_instance_from_file(
         mod_loader_version: mod_loader.as_ref().map(|m| m.version.clone()),
         files_to_download: result.files_to_download.len(),
         warnings,
+        blocked_files,
     };
     
     tracing::info!("Imported instance: {}", result_info.name);
@@ -513,14 +541,29 @@ pub async fn import_instance_from_url(
         tracing::info!("Modloader installed successfully");
     }
     
-    // Add to state
-    let mut instances = state.instances.lock().unwrap();
-    instances.push(instance);
+    // Add to state (using block to ensure lock is dropped before async ops)
+    {
+        let mut instances = state.instances.lock().unwrap();
+        instances.push(instance.clone());
+    }
+    
+    // Download files that need API resolution (CurseForge modpacks)
+    let (download_warnings, blocked_files) = if !result.files_to_download.is_empty() {
+        tracing::info!("Downloading {} modpack files from URL import...", result.files_to_download.len());
+        let mods_dir = game_dir.join("mods");
+        std::fs::create_dir_all(&mods_dir)
+            .map_err(|e| format!("Failed to create mods directory: {}", e))?;
+        
+        let dl_result = download_curseforge_files(&result.files_to_download, &mods_dir).await;
+        (dl_result.warnings, dl_result.blocked_files)
+    } else {
+        (Vec::new(), Vec::new())
+    };
     
     // Prepare warnings
     let mut warnings = Vec::new();
-    if !result.files_to_download.is_empty() {
-        warnings.push(format!("{} files need to be downloaded", result.files_to_download.len()));
+    if !download_warnings.is_empty() {
+        warnings.extend(download_warnings);
     }
     
     let result_info = ImportResultInfo {
@@ -531,6 +574,7 @@ pub async fn import_instance_from_url(
         mod_loader_version: mod_loader.as_ref().map(|m| m.version.clone()),
         files_to_download: result.files_to_download.len(),
         warnings,
+        blocked_files,
     };
     
     tracing::info!("Imported instance from URL: {}", result_info.name);
@@ -558,4 +602,166 @@ fn copy_dir_all(src: &PathBuf, dst: &PathBuf) -> std::io::Result<()> {
     }
     
     Ok(())
+}
+
+/// Result of downloading CurseForge files
+struct CurseForgeDownloadResult {
+    warnings: Vec<String>,
+    blocked_files: Vec<BlockedFileInfo>,
+}
+
+/// Download files from CurseForge API
+/// Returns warnings and info about blocked files that need manual download
+async fn download_curseforge_files(
+    files: &[FileToDownload],
+    mods_dir: &PathBuf,
+) -> CurseForgeDownloadResult {
+    let mut warnings = Vec::new();
+    let mut blocked_files = Vec::new();
+    let client = CurseForgeClient::new();
+    
+    if !client.has_api_key() {
+        warnings.push("CurseForge API key not configured - cannot download modpack files".to_string());
+        return CurseForgeDownloadResult { warnings, blocked_files };
+    }
+    
+    let mut downloaded = 0;
+    let mut blocked = 0;
+    
+    for file in files {
+        // Only process files with CurseForge platform info
+        if let Some(ref platform_info) = file.platform_info {
+            if platform_info.platform != "curseforge" {
+                // Try to download from URLs if available
+                if !file.urls.is_empty() {
+                    if let Err(e) = download_from_urls(&file.urls, mods_dir, &file.path).await {
+                        warnings.push(format!("Failed to download {}: {}", file.path, e));
+                    } else {
+                        downloaded += 1;
+                    }
+                }
+                continue;
+            }
+            
+            let project_id: u32 = match platform_info.project_id.parse() {
+                Ok(id) => id,
+                Err(_) => {
+                    warnings.push(format!("Invalid project ID: {}", platform_info.project_id));
+                    continue;
+                }
+            };
+            
+            let file_id: u32 = match platform_info.file_id.parse() {
+                Ok(id) => id,
+                Err(_) => {
+                    warnings.push(format!("Invalid file ID: {}", platform_info.file_id));
+                    continue;
+                }
+            };
+            
+            // Try to get the download URL from CurseForge API
+            match client.get_download_url(project_id, file_id).await {
+                Ok(download_url) if !download_url.is_empty() => {
+                    // Get file info to get the correct filename
+                    let filename = match client.get_file(project_id, file_id).await {
+                        Ok(file_info) => file_info.files.first()
+                            .map(|f| f.filename.clone())
+                            .unwrap_or_else(|| format!("{}.jar", file_id)),
+                        Err(_) => format!("{}.jar", file_id),
+                    };
+                    
+                    let dest_path = mods_dir.join(&filename);
+                    
+                    match download_file(&download_url, &dest_path, None).await {
+                        Ok(_) => {
+                            tracing::debug!("Downloaded: {}", filename);
+                            downloaded += 1;
+                        }
+                        Err(e) => {
+                            warnings.push(format!("Failed to download {}: {}", filename, e));
+                        }
+                    }
+                }
+                Ok(_) => {
+                    // Empty download URL means blocked mod
+                    blocked += 1;
+                    // Try to get the project name for a better warning
+                    let filename = match client.get_file(project_id, file_id).await {
+                        Ok(file_info) => file_info.files.first()
+                            .map(|f| f.filename.clone())
+                            .unwrap_or_else(|| format!("{}.jar", file_id)),
+                        Err(_) => format!("{}.jar", file_id),
+                    };
+                    
+                    blocked_files.push(BlockedFileInfo {
+                        project_id: project_id.to_string(),
+                        file_id: file_id.to_string(),
+                        filename,
+                    });
+                }
+                Err(e) => {
+                    // API error - could be blocked or actual error
+                    blocked += 1;
+                    let filename = match client.get_file(project_id, file_id).await {
+                        Ok(file_info) => file_info.files.first()
+                            .map(|f| f.filename.clone())
+                            .unwrap_or_else(|| format!("{}.jar", file_id)),
+                        Err(_) => format!("{}.jar", file_id),
+                    };
+                    
+                    blocked_files.push(BlockedFileInfo {
+                        project_id: project_id.to_string(),
+                        file_id: file_id.to_string(),
+                        filename,
+                    });
+                    
+                    tracing::warn!(
+                        "Could not get download URL for project {} file {}: {}",
+                        project_id, file_id, e
+                    );
+                }
+            }
+        } else if !file.urls.is_empty() {
+            // Non-CurseForge file with URLs
+            if let Err(e) = download_from_urls(&file.urls, mods_dir, &file.path).await {
+                warnings.push(format!("Failed to download {}: {}", file.path, e));
+            } else {
+                downloaded += 1;
+            }
+        }
+    }
+    
+    if downloaded > 0 || blocked > 0 {
+        tracing::info!(
+            "Downloaded {} files, {} blocked mods",
+            downloaded, blocked
+        );
+    }
+    
+    CurseForgeDownloadResult { warnings, blocked_files }
+}
+
+/// Download a file from a list of URLs (tries each in order)
+async fn download_from_urls(
+    urls: &[String],
+    mods_dir: &PathBuf,
+    relative_path: &str,
+) -> Result<(), String> {
+    let filename = std::path::Path::new(relative_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(relative_path);
+    
+    let dest_path = mods_dir.join(filename);
+    
+    for url in urls {
+        match download_file(url, &dest_path, None).await {
+            Ok(_) => return Ok(()),
+            Err(e) => {
+                tracing::warn!("Failed to download from {}: {}", url, e);
+            }
+        }
+    }
+    
+    Err(format!("All download URLs failed for {}", relative_path))
 }

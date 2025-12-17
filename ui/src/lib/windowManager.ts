@@ -1,0 +1,318 @@
+import { WebviewWindow, getAllWebviewWindows, getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { emit, listen, UnlistenFn } from "@tauri-apps/api/event";
+
+// Window labels for our dialog windows
+export const WINDOW_LABELS = {
+  MODPACK_BROWSER: "modpack-browser",
+  MOD_BROWSER: "mod-browser",
+  RESOURCE_BROWSER: "resource-browser",
+  SHADER_BROWSER: "shader-browser",
+} as const;
+
+export type DialogWindowLabel = typeof WINDOW_LABELS[keyof typeof WINDOW_LABELS];
+
+interface DialogWindowConfig {
+  label: DialogWindowLabel;
+  url: string;
+  title: string;
+  width?: number;
+  height?: number;
+  minWidth?: number;
+  minHeight?: number;
+}
+
+// Route paths (used with hash router - will be prefixed with index.html#)
+const DIALOG_ROUTES: Record<DialogWindowLabel, string> = {
+  [WINDOW_LABELS.MODPACK_BROWSER]: "/dialog/modpack-browser",
+  [WINDOW_LABELS.MOD_BROWSER]: "/dialog/mod-browser",
+  [WINDOW_LABELS.RESOURCE_BROWSER]: "/dialog/resource-browser",
+  [WINDOW_LABELS.SHADER_BROWSER]: "/dialog/shader-browser",
+};
+
+const DIALOG_CONFIGS: Record<DialogWindowLabel, Omit<DialogWindowConfig, "label">> = {
+  [WINDOW_LABELS.MODPACK_BROWSER]: {
+    url: DIALOG_ROUTES[WINDOW_LABELS.MODPACK_BROWSER],
+    title: "Browse Modpacks",
+    width: 1200,
+    height: 800,
+    minWidth: 900,
+    minHeight: 600,
+  },
+  [WINDOW_LABELS.MOD_BROWSER]: {
+    url: DIALOG_ROUTES[WINDOW_LABELS.MOD_BROWSER],
+    title: "Browse Mods",
+    width: 1200,
+    height: 800,
+    minWidth: 900,
+    minHeight: 600,
+  },
+  [WINDOW_LABELS.RESOURCE_BROWSER]: {
+    url: DIALOG_ROUTES[WINDOW_LABELS.RESOURCE_BROWSER],
+    title: "Browse Resource Packs",
+    width: 1200,
+    height: 800,
+    minWidth: 900,
+    minHeight: 600,
+  },
+  [WINDOW_LABELS.SHADER_BROWSER]: {
+    url: DIALOG_ROUTES[WINDOW_LABELS.SHADER_BROWSER],
+    title: "Browse Shaders",
+    width: 1200,
+    height: 800,
+    minWidth: 900,
+    minHeight: 600,
+  },
+};
+
+// Currently open dialog window (only one allowed at a time)
+let currentDialogWindow: WebviewWindow | null = null;
+let currentDialogLabel: DialogWindowLabel | null = null;
+
+/**
+ * Close any currently open dialog window
+ */
+export async function closeCurrentDialog(): Promise<void> {
+  if (currentDialogWindow) {
+    try {
+      await currentDialogWindow.close();
+    } catch {
+      // Window might already be closed
+    }
+    currentDialogWindow = null;
+    currentDialogLabel = null;
+    // Emit event so main window can hide overlay
+    await emitDialogClosed();
+  }
+}
+
+/**
+ * Check if a specific dialog is currently open
+ */
+export function isDialogOpen(label: DialogWindowLabel): boolean {
+  return currentDialogLabel === label && currentDialogWindow !== null;
+}
+
+/**
+ * Get the currently open dialog label
+ */
+export function getCurrentDialogLabel(): DialogWindowLabel | null {
+  return currentDialogLabel;
+}
+
+/**
+ * Open a dialog window. Closes any existing dialog first.
+ * @param label The dialog window label to open
+ * @param urlParams Optional URL parameters to pass to the dialog
+ * @returns The created WebviewWindow, or null if creation failed
+ */
+export async function openDialogWindow(
+  label: DialogWindowLabel,
+  urlParams?: Record<string, string>
+): Promise<WebviewWindow | null> {
+  // Close any existing dialog first
+  await closeCurrentDialog();
+
+  const config = DIALOG_CONFIGS[label];
+  if (!config) {
+    console.error(`Unknown dialog label: ${label}`);
+    return null;
+  }
+
+  // Build URL with hash router format: index.html#/dialog/path?params
+  // This is required because Tauri loads files directly, not through a web server
+  let route = config.url;
+  if (urlParams && Object.keys(urlParams).length > 0) {
+    const params = new URLSearchParams(urlParams);
+    route = `${route}?${params.toString()}`;
+  }
+  
+  // Use index.html with hash for proper routing in production builds
+  const url = `index.html#${route}`;
+
+  try {
+    // Check if window already exists (e.g., from a previous session)
+    const existingWindows = await getAllWebviewWindows();
+    const existing = existingWindows.find(w => w.label === label);
+    if (existing) {
+      // Focus the existing window
+      await existing.setFocus();
+      currentDialogWindow = existing;
+      currentDialogLabel = label;
+      return existing;
+    }
+
+    // Create new window
+    const webview = new WebviewWindow(label, {
+      url,
+      title: config.title,
+      width: config.width,
+      height: config.height,
+      minWidth: config.minWidth,
+      minHeight: config.minHeight,
+      resizable: true,
+      center: true,
+      decorations: false, // Disable native title bar
+      transparent: false,
+      parent: "main", // Set parent to main window for modal-like behavior
+    });
+
+    // Wait for window creation
+    await new Promise<void>((resolve, reject) => {
+      webview.once("tauri://created", () => {
+        currentDialogWindow = webview;
+        currentDialogLabel = label;
+        resolve();
+      });
+
+      webview.once("tauri://error", (e) => {
+        console.error("Failed to create dialog window:", e);
+        reject(new Error(`Failed to create dialog window: ${e}`));
+      });
+    });
+
+    // Emit event so main window can show overlay
+    await emitDialogOpened(label);
+
+    // Listen for window close to clean up state
+    webview.onCloseRequested(async () => {
+      if (currentDialogLabel === label) {
+        currentDialogWindow = null;
+        currentDialogLabel = null;
+        // Emit event so main window can hide overlay
+        await emitDialogClosed();
+      }
+    });
+
+    return webview;
+  } catch (error) {
+    console.error("Failed to open dialog window:", error);
+    currentDialogWindow = null;
+    currentDialogLabel = null;
+    return null;
+  }
+}
+
+/**
+ * Focus the currently open dialog window, if any
+ */
+export async function focusCurrentDialog(): Promise<void> {
+  if (currentDialogWindow) {
+    try {
+      await currentDialogWindow.setFocus();
+    } catch {
+      // Window might have been closed
+      currentDialogWindow = null;
+      currentDialogLabel = null;
+    }
+  }
+}
+
+/**
+ * Get the window by label from currently open windows
+ */
+export async function getWindowByLabel(label: string): Promise<WebviewWindow | null> {
+  try {
+    const windows = await getAllWebviewWindows();
+    return windows.find(w => w.label === label) || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check if the current window is a dialog window (not the main window)
+ */
+export function isDialogWindowContext(): boolean {
+  // Dialog windows use hash router, so we check the URL hash
+  const hash = window.location.hash;
+  return hash.includes("/dialog/");
+}
+
+// Track listener cleanup
+let mainWindowCloseListener: UnlistenFn | null = null;
+
+/**
+ * Setup listener on main window to close all dialog windows when main closes.
+ * Call this once when the main app initializes.
+ */
+export async function setupMainWindowCloseHandler(): Promise<void> {
+  // Only setup on main window
+  if (isDialogWindowContext()) return;
+  
+  try {
+    const mainWindow = getCurrentWebviewWindow();
+    
+    // Clean up existing listener if any
+    if (mainWindowCloseListener) {
+      mainWindowCloseListener();
+      mainWindowCloseListener = null;
+    }
+    
+    // Listen for close request on main window
+    mainWindowCloseListener = await mainWindow.onCloseRequested(async () => {
+      // Close any open dialog windows first
+      await closeAllDialogWindows();
+    });
+  } catch (error) {
+    console.error("Failed to setup main window close handler:", error);
+  }
+}
+
+/**
+ * Close all dialog windows
+ */
+export async function closeAllDialogWindows(): Promise<void> {
+  try {
+    const windows = await getAllWebviewWindows();
+    for (const window of windows) {
+      // Close all windows except main
+      if (window.label !== "main") {
+        try {
+          await window.close();
+        } catch {
+          // Window might already be closed
+        }
+      }
+    }
+    currentDialogWindow = null;
+    currentDialogLabel = null;
+  } catch (error) {
+    console.error("Failed to close dialog windows:", error);
+  }
+}
+
+/**
+ * Emit event when dialog opens (for main window to show overlay)
+ */
+export async function emitDialogOpened(label: DialogWindowLabel): Promise<void> {
+  await emit("dialog-opened", { label });
+}
+
+/**
+ * Emit event when dialog closes (for main window to hide overlay)
+ */
+export async function emitDialogClosed(): Promise<void> {
+  await emit("dialog-closed", {});
+}
+
+/**
+ * Setup listeners for dialog open/close events
+ * @returns cleanup function
+ */
+export async function setupDialogEventListeners(
+  onOpen: (label: DialogWindowLabel) => void,
+  onClose: () => void
+): Promise<() => void> {
+  const unlistenOpen = await listen<{ label: DialogWindowLabel }>("dialog-opened", (event) => {
+    onOpen(event.payload.label);
+  });
+  
+  const unlistenClose = await listen("dialog-closed", () => {
+    onClose();
+  });
+  
+  return () => {
+    unlistenOpen();
+    unlistenClose();
+  };
+}

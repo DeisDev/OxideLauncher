@@ -65,6 +65,8 @@ export interface NetworkConfig {
   download_retries: number;
   timeout_seconds: number;
   user_agent: string;
+  downloads_dir: string | null;
+  downloads_dir_watch_recursive: boolean;
 }
 
 export interface UiConfig {
