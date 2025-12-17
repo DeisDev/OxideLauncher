@@ -273,12 +273,13 @@ pub struct CurseForgeModLoader {
 
 /// File reference in CurseForge manifest
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct CurseForgeFile {
-    /// CurseForge project ID
+    /// CurseForge project ID (uses projectID with uppercase ID)
+    #[serde(rename = "projectID")]
     pub project_id: u32,
     
-    /// CurseForge file ID
+    /// CurseForge file ID (uses fileID with uppercase ID)
+    #[serde(rename = "fileID")]
     pub file_id: u32,
     
     /// Whether the file is required

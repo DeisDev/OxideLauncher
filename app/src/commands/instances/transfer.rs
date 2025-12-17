@@ -1,6 +1,7 @@
 //! Instance import/export commands
 
 use crate::commands::state::AppState;
+use crate::core::config::Config;
 use crate::core::instance::{
     export_instance as core_export_instance, ExportOptions,
     import_instance as core_import_instance, detect_import_type, ImportOptions, ImportType,
@@ -11,7 +12,10 @@ use crate::core::modplatform::curseforge::CurseForgeClient;
 use crate::core::download::download_file;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use tauri::State;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::Instant;
+use tauri::{State, AppHandle, Emitter};
 
 // =============================================================================
 // Export Types
@@ -73,11 +77,71 @@ pub struct BlockedFileInfo {
     pub filename: String,
 }
 
+/// Download progress event for modpack installation
+#[derive(Debug, Clone, Serialize)]
+pub struct ModpackDownloadProgress {
+    /// Number of files downloaded so far
+    pub downloaded: usize,
+    /// Total number of files to download
+    pub total: usize,
+    /// Bytes downloaded so far across all files
+    pub bytes_downloaded: u64,
+    /// Current download speed in bytes per second
+    pub speed_bps: u64,
+    /// Name of the file currently being downloaded (if any)
+    pub current_file: Option<String>,
+}
+
 /// Detected import type info
 #[derive(Debug, Clone, Serialize)]
 pub struct ImportTypeInfo {
     pub format_type: String,
     pub display_name: String,
+}
+
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
+/// Download an icon from a URL and save it to the instance directory
+async fn download_icon(client: &reqwest::Client, url: &str, instance_path: &std::path::Path) -> Result<String, String> {
+    // Download the icon
+    let response = client.get(url)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to download icon: {}", e))?;
+    
+    if !response.status().is_success() {
+        return Err(format!("Icon download failed with status: {}", response.status()));
+    }
+    
+    // Get content type to determine extension
+    let content_type = response.headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("image/png");
+    
+    let ext = match content_type {
+        t if t.contains("png") => "png",
+        t if t.contains("jpeg") || t.contains("jpg") => "jpg",
+        t if t.contains("gif") => "gif",
+        t if t.contains("webp") => "webp",
+        _ => "png",
+    };
+    
+    let bytes = response.bytes()
+        .await
+        .map_err(|e| format!("Failed to read icon data: {}", e))?;
+    
+    // Save the icon
+    let icon_filename = format!("icon.{}", ext);
+    let icon_path = instance_path.join(&icon_filename);
+    
+    std::fs::write(&icon_path, &bytes)
+        .map_err(|e| format!("Failed to save icon: {}", e))?;
+    
+    tracing::info!("Downloaded icon to {:?}", icon_path);
+    Ok(icon_filename)
 }
 
 // =============================================================================
@@ -190,6 +254,7 @@ pub async fn detect_import_format(
 #[tauri::command]
 pub async fn import_instance_from_file(
     state: State<'_, AppState>,
+    app: AppHandle,
     archive_path: String,
     name_override: Option<String>,
 ) -> Result<ImportResultInfo, String> {
@@ -334,11 +399,8 @@ pub async fn import_instance_from_file(
     // Download files that need API resolution (CurseForge modpacks)
     let (download_warnings, blocked_files) = if !result.files_to_download.is_empty() {
         tracing::info!("Downloading {} modpack files...", result.files_to_download.len());
-        let mods_dir = game_dir.join("mods");
-        std::fs::create_dir_all(&mods_dir)
-            .map_err(|e| format!("Failed to create mods directory: {}", e))?;
-        
-        let dl_result = download_curseforge_files(&result.files_to_download, &mods_dir).await;
+        // Pass game_dir and let the function determine correct subdirectory for each file
+        let dl_result = download_curseforge_files(&result.files_to_download, &game_dir, Some(&app)).await;
         (dl_result.warnings, dl_result.blocked_files)
     } else {
         (Vec::new(), Vec::new())
@@ -370,8 +432,10 @@ pub async fn import_instance_from_file(
 #[tauri::command]
 pub async fn import_instance_from_url(
     state: State<'_, AppState>,
+    app: AppHandle,
     url: String,
     name_override: Option<String>,
+    icon_url: Option<String>,
 ) -> Result<ImportResultInfo, String> {
     // Get temp and instances directories
     let (temp_dir, instances_dir) = {
@@ -398,8 +462,10 @@ pub async fn import_instance_from_url(
     
     let download_path = temp_dir.join(&filename);
     
-    // Download the file
+    // Create HTTP client
     let client = reqwest::Client::new();
+    
+    // Download the file
     let response = client.get(&url)
         .send()
         .await
@@ -438,6 +504,19 @@ pub async fn import_instance_from_url(
     
     std::fs::create_dir_all(&game_dir)
         .map_err(|e| format!("Failed to create instance directory: {}", e))?;
+    
+    // Download and save icon if provided
+    let downloaded_icon = if let Some(ref icon_url_str) = icon_url {
+        match download_icon(&client, icon_url_str, &instance_path).await {
+            Ok(icon_filename) => Some(format!("custom:{}", icon_filename)),
+            Err(e) => {
+                tracing::warn!("Failed to download icon: {}", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
     
     // Move overrides to game directory
     if let Some(overrides_path) = &result.overrides_path {
@@ -495,13 +574,15 @@ pub async fn import_instance_from_url(
         ..Default::default()
     };
     
-    // Determine icon
-    let icon = result.icon.as_ref().map(|i| {
-        match i {
-            crate::core::instance::OxideIcon::Default { name } => name.clone(),
-            crate::core::instance::OxideIcon::Custom { filename, .. } => format!("custom:{}", filename),
-        }
-    }).unwrap_or_else(|| "grass".to_string());
+    // Determine icon - prefer downloaded icon, then result icon, then default
+    let icon = downloaded_icon
+        .or_else(|| result.icon.as_ref().map(|i| {
+            match i {
+                crate::core::instance::OxideIcon::Default { name } => name.clone(),
+                crate::core::instance::OxideIcon::Custom { filename, .. } => format!("custom:{}", filename),
+            }
+        }))
+        .unwrap_or_else(|| "grass".to_string());
     
     // Create the instance
     let instance = Instance::new(
@@ -550,11 +631,8 @@ pub async fn import_instance_from_url(
     // Download files that need API resolution (CurseForge modpacks)
     let (download_warnings, blocked_files) = if !result.files_to_download.is_empty() {
         tracing::info!("Downloading {} modpack files from URL import...", result.files_to_download.len());
-        let mods_dir = game_dir.join("mods");
-        std::fs::create_dir_all(&mods_dir)
-            .map_err(|e| format!("Failed to create mods directory: {}", e))?;
-        
-        let dl_result = download_curseforge_files(&result.files_to_download, &mods_dir).await;
+        // Pass game_dir and let the function determine correct subdirectory for each file
+        let dl_result = download_curseforge_files(&result.files_to_download, &game_dir, Some(&app)).await;
         (dl_result.warnings, dl_result.blocked_files)
     } else {
         (Vec::new(), Vec::new())
@@ -612,9 +690,12 @@ struct CurseForgeDownloadResult {
 
 /// Download files from CurseForge API
 /// Returns warnings and info about blocked files that need manual download
+/// game_dir is the .minecraft directory, files will be placed in appropriate subdirectories
+/// based on their path (e.g., mods/, resourcepacks/, shaderpacks/)
 async fn download_curseforge_files(
     files: &[FileToDownload],
-    mods_dir: &PathBuf,
+    game_dir: &PathBuf,
+    app: Option<&AppHandle>,
 ) -> CurseForgeDownloadResult {
     let mut warnings = Vec::new();
     let mut blocked_files = Vec::new();
@@ -625,143 +706,221 @@ async fn download_curseforge_files(
         return CurseForgeDownloadResult { warnings, blocked_files };
     }
     
-    let mut downloaded = 0;
-    let mut blocked = 0;
-    
-    for file in files {
-        // Only process files with CurseForge platform info
-        if let Some(ref platform_info) = file.platform_info {
-            if platform_info.platform != "curseforge" {
-                // Try to download from URLs if available
-                if !file.urls.is_empty() {
-                    if let Err(e) = download_from_urls(&file.urls, mods_dir, &file.path).await {
-                        warnings.push(format!("Failed to download {}: {}", file.path, e));
-                    } else {
-                        downloaded += 1;
-                    }
-                }
-                continue;
-            }
+    // Phase 1: Resolve all download URLs in parallel
+    // Collect tasks: (url, dest_path, is_blocked, blocked_info)
+    let resolve_futures: Vec<_> = files.iter().map(|file| {
+        let game_dir = game_dir.clone();
+        let file = file.clone();
+        
+        async move {
+            // Create client inside async block since CurseForgeClient isn't Clone
+            let client = CurseForgeClient::new();
             
-            let project_id: u32 = match platform_info.project_id.parse() {
-                Ok(id) => id,
-                Err(_) => {
-                    warnings.push(format!("Invalid project ID: {}", platform_info.project_id));
-                    continue;
+            // Determine the target directory based on the file path
+            let target_dir = if let Some(parent) = std::path::Path::new(&file.path).parent() {
+                let parent_str = parent.to_string_lossy();
+                if !parent_str.is_empty() {
+                    game_dir.join(parent_str.as_ref())
+                } else {
+                    game_dir.join("mods")
                 }
-            };
-            
-            let file_id: u32 = match platform_info.file_id.parse() {
-                Ok(id) => id,
-                Err(_) => {
-                    warnings.push(format!("Invalid file ID: {}", platform_info.file_id));
-                    continue;
-                }
-            };
-            
-            // Try to get the download URL from CurseForge API
-            match client.get_download_url(project_id, file_id).await {
-                Ok(download_url) if !download_url.is_empty() => {
-                    // Get file info to get the correct filename
-                    let filename = match client.get_file(project_id, file_id).await {
-                        Ok(file_info) => file_info.files.first()
-                            .map(|f| f.filename.clone())
-                            .unwrap_or_else(|| format!("{}.jar", file_id)),
-                        Err(_) => format!("{}.jar", file_id),
-                    };
-                    
-                    let dest_path = mods_dir.join(&filename);
-                    
-                    match download_file(&download_url, &dest_path, None).await {
-                        Ok(_) => {
-                            tracing::debug!("Downloaded: {}", filename);
-                            downloaded += 1;
-                        }
-                        Err(e) => {
-                            warnings.push(format!("Failed to download {}: {}", filename, e));
-                        }
-                    }
-                }
-                Ok(_) => {
-                    // Empty download URL means blocked mod
-                    blocked += 1;
-                    // Try to get the project name for a better warning
-                    let filename = match client.get_file(project_id, file_id).await {
-                        Ok(file_info) => file_info.files.first()
-                            .map(|f| f.filename.clone())
-                            .unwrap_or_else(|| format!("{}.jar", file_id)),
-                        Err(_) => format!("{}.jar", file_id),
-                    };
-                    
-                    blocked_files.push(BlockedFileInfo {
-                        project_id: project_id.to_string(),
-                        file_id: file_id.to_string(),
-                        filename,
-                    });
-                }
-                Err(e) => {
-                    // API error - could be blocked or actual error
-                    blocked += 1;
-                    let filename = match client.get_file(project_id, file_id).await {
-                        Ok(file_info) => file_info.files.first()
-                            .map(|f| f.filename.clone())
-                            .unwrap_or_else(|| format!("{}.jar", file_id)),
-                        Err(_) => format!("{}.jar", file_id),
-                    };
-                    
-                    blocked_files.push(BlockedFileInfo {
-                        project_id: project_id.to_string(),
-                        file_id: file_id.to_string(),
-                        filename,
-                    });
-                    
-                    tracing::warn!(
-                        "Could not get download URL for project {} file {}: {}",
-                        project_id, file_id, e
-                    );
-                }
-            }
-        } else if !file.urls.is_empty() {
-            // Non-CurseForge file with URLs
-            if let Err(e) = download_from_urls(&file.urls, mods_dir, &file.path).await {
-                warnings.push(format!("Failed to download {}: {}", file.path, e));
             } else {
-                downloaded += 1;
+                game_dir.join("mods")
+            };
+            
+            // Ensure target directory exists
+            if let Err(e) = std::fs::create_dir_all(&target_dir) {
+                return Err(format!("Failed to create directory {}: {}", target_dir.display(), e));
             }
+            
+            if let Some(ref platform_info) = file.platform_info {
+                if platform_info.platform != "curseforge" {
+                    // Non-CurseForge file with URLs
+                    if !file.urls.is_empty() {
+                        let filename = std::path::Path::new(&file.path)
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or(&file.path);
+                        return Ok(Some((file.urls[0].clone(), target_dir.join(filename), None)));
+                    }
+                    return Ok(None);
+                }
+                
+                let project_id: u32 = match platform_info.project_id.parse() {
+                    Ok(id) => id,
+                    Err(_) => return Err(format!("Invalid project ID: {}", platform_info.project_id)),
+                };
+                
+                let file_id: u32 = match platform_info.file_id.parse() {
+                    Ok(id) => id,
+                    Err(_) => return Err(format!("Invalid file ID: {}", platform_info.file_id)),
+                };
+                
+                // Get download URL
+                match client.get_download_url(project_id, file_id).await {
+                    Ok(download_url) if !download_url.is_empty() => {
+                        // Get filename
+                        let filename = match client.get_file(project_id, file_id).await {
+                            Ok(file_info) => file_info.files.first()
+                                .map(|f| f.filename.clone())
+                                .unwrap_or_else(|| format!("{}.jar", file_id)),
+                            Err(_) => format!("{}.jar", file_id),
+                        };
+                        Ok(Some((download_url, target_dir.join(&filename), None)))
+                    }
+                    Ok(_) | Err(_) => {
+                        // Blocked or error - get filename for blocked_files
+                        let filename = match client.get_file(project_id, file_id).await {
+                            Ok(file_info) => file_info.files.first()
+                                .map(|f| f.filename.clone())
+                                .unwrap_or_else(|| format!("{}.jar", file_id)),
+                            Err(_) => format!("{}.jar", file_id),
+                        };
+                        
+                        let blocked_info = BlockedFileInfo {
+                            project_id: project_id.to_string(),
+                            file_id: file_id.to_string(),
+                            filename,
+                        };
+                        Ok(Some(("".to_string(), PathBuf::new(), Some(blocked_info))))
+                    }
+                }
+            } else if !file.urls.is_empty() {
+                let filename = std::path::Path::new(&file.path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(&file.path);
+                Ok(Some((file.urls[0].clone(), target_dir.join(filename), None)))
+            } else {
+                Ok(None)
+            }
+        }
+    }).collect();
+    
+    // Run URL resolution in parallel (limited concurrency)
+    let resolved: Vec<_> = futures::future::join_all(resolve_futures).await;
+    
+    // Collect download tasks and blocked files
+    let mut download_tasks = Vec::new();
+    
+    for result in resolved {
+        match result {
+            Ok(Some((url, dest, blocked_info))) => {
+                if let Some(info) = blocked_info {
+                    blocked_files.push(info);
+                } else if !url.is_empty() {
+                    download_tasks.push((url, dest));
+                }
+            }
+            Ok(None) => {}
+            Err(e) => warnings.push(e),
         }
     }
     
+    // Phase 2: Download all files in parallel
+    // Use a semaphore to limit concurrent downloads (respect config setting)
+    let config = Config::load().unwrap_or_default();
+    let max_concurrent = config.network.max_concurrent_downloads;
+    let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(max_concurrent));
+    
+    // Progress tracking
+    let total_files = download_tasks.len();
+    let downloaded_count = Arc::new(AtomicUsize::new(0));
+    let bytes_downloaded = Arc::new(AtomicU64::new(0));
+    let start_time = Instant::now();
+    
+    // Emit initial progress
+    if let Some(app) = app {
+        let _ = app.emit("modpack-download-progress", ModpackDownloadProgress {
+            downloaded: 0,
+            total: total_files,
+            bytes_downloaded: 0,
+            speed_bps: 0,
+            current_file: None,
+        });
+    }
+    
+    let download_futures: Vec<_> = download_tasks.into_iter().map(|(url, dest)| {
+        let sem = semaphore.clone();
+        let downloaded_count = downloaded_count.clone();
+        let bytes_downloaded = bytes_downloaded.clone();
+        let app_opt = app.cloned();
+        let total = total_files;
+        
+        async move {
+            let _permit = sem.acquire().await.unwrap();
+            let filename = dest.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown")
+                .to_string();
+            
+            match download_file(&url, &dest, None).await {
+                Ok(_) => {
+                    // Update counters
+                    let new_count = downloaded_count.fetch_add(1, Ordering::SeqCst) + 1;
+                    
+                    // Approximate bytes - we don't have exact size info here
+                    // Get actual file size after download
+                    if let Ok(metadata) = std::fs::metadata(&dest) {
+                        bytes_downloaded.fetch_add(metadata.len(), Ordering::SeqCst);
+                    }
+                    
+                    // Emit progress event
+                    if let Some(app) = &app_opt {
+                        let elapsed = start_time.elapsed().as_secs_f64();
+                        let total_bytes = bytes_downloaded.load(Ordering::SeqCst);
+                        let speed = if elapsed > 0.0 { (total_bytes as f64 / elapsed) as u64 } else { 0 };
+                        
+                        let _ = app.emit("modpack-download-progress", ModpackDownloadProgress {
+                            downloaded: new_count,
+                            total,
+                            bytes_downloaded: total_bytes,
+                            speed_bps: speed,
+                            current_file: Some(filename.clone()),
+                        });
+                    }
+                    
+                    tracing::debug!("Downloaded: {}", dest.display());
+                    Ok(())
+                }
+                Err(e) => Err(format!("Failed to download {}: {}", dest.display(), e)),
+            }
+        }
+    }).collect();
+    
+    let download_results: Vec<_> = futures::future::join_all(download_futures).await;
+    
+    let mut downloaded = 0;
+    for result in download_results {
+        match result {
+            Ok(_) => downloaded += 1,
+            Err(e) => warnings.push(e),
+        }
+    }
+    
+    let blocked = blocked_files.len();
+    
     if downloaded > 0 || blocked > 0 {
         tracing::info!(
-            "Downloaded {} files, {} blocked mods",
+            "Downloaded {} files in parallel, {} blocked mods",
             downloaded, blocked
         );
     }
     
-    CurseForgeDownloadResult { warnings, blocked_files }
-}
-
-/// Download a file from a list of URLs (tries each in order)
-async fn download_from_urls(
-    urls: &[String],
-    mods_dir: &PathBuf,
-    relative_path: &str,
-) -> Result<(), String> {
-    let filename = std::path::Path::new(relative_path)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or(relative_path);
-    
-    let dest_path = mods_dir.join(filename);
-    
-    for url in urls {
-        match download_file(url, &dest_path, None).await {
-            Ok(_) => return Ok(()),
-            Err(e) => {
-                tracing::warn!("Failed to download from {}: {}", url, e);
-            }
-        }
+    // Emit final progress
+    if let Some(app) = app {
+        let elapsed = start_time.elapsed().as_secs_f64();
+        let total_bytes = bytes_downloaded.load(Ordering::SeqCst);
+        let speed = if elapsed > 0.0 { (total_bytes as f64 / elapsed) as u64 } else { 0 };
+        
+        let _ = app.emit("modpack-download-progress", ModpackDownloadProgress {
+            downloaded,
+            total: total_files,
+            bytes_downloaded: total_bytes,
+            speed_bps: speed,
+            current_file: None,
+        });
     }
     
-    Err(format!("All download URLs failed for {}", relative_path))
+    CurseForgeDownloadResult { warnings, blocked_files }
 }

@@ -107,7 +107,7 @@ pub async fn resolve_blocked_mods(
             }
             
             // Get project info for name and URL
-            let (name, website_url) = match client.get_mod(project_id).await {
+            let (name, base_url) = match client.get_mod(project_id).await {
                 Ok(project) => {
                     let url = project.links.website
                         .unwrap_or_else(|| format!("https://www.curseforge.com/minecraft/mc-mods/{}", project.slug));
@@ -118,6 +118,10 @@ pub async fn resolve_blocked_mods(
                     format!("https://www.curseforge.com/minecraft/mc-mods/{}", project_id),
                 ),
             };
+            
+            // Construct direct file download URL (like Prism does)
+            // This links to the exact file page instead of just the project page
+            let website_url = format!("{}/download/{}", base_url, file_id);
             
             // Get file info for filename and hash
             let (filename, hash, hash_algo) = match client.get_file(project_id, file_id).await {
@@ -334,7 +338,7 @@ pub async fn resolve_blocked_files(
         };
         
         // Get project info for name and URL
-        let (name, website_url) = match client.get_mod(project_id).await {
+        let (name, base_url) = match client.get_mod(project_id).await {
             Ok(project) => {
                 let url = project.links.website
                     .unwrap_or_else(|| format!("https://www.curseforge.com/minecraft/mc-mods/{}", project.slug));
@@ -345,6 +349,10 @@ pub async fn resolve_blocked_files(
                 format!("https://www.curseforge.com/minecraft/mc-mods/{}", project_id),
             ),
         };
+        
+        // Construct direct file download URL (like Prism does)
+        // This links to the exact file page instead of just the project page
+        let website_url = format!("{}/download/{}", base_url, file_id);
         
         // Get file info for filename and hash
         let (filename, hash, hash_algo) = match client.get_file(project_id, file_id).await {

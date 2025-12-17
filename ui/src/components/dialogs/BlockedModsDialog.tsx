@@ -86,7 +86,16 @@ export function BlockedModsDialog({
       blockedMods,
       additionalPaths,
     })
-      .then(() => setIsWatching(true))
+      .then(() => {
+        setIsWatching(true);
+        // Immediately scan for files when watcher starts
+        invoke<BlockedMod[]>("scan_for_blocked_mod_files", {
+          blockedMods,
+          additionalPaths,
+        })
+          .then(setBlockedMods)
+          .catch((err) => console.error("Initial scan failed:", err));
+      })
       .catch((err) => {
         console.error("Failed to start watcher:", err);
         setError(`Failed to watch for files: ${err}`);
@@ -229,7 +238,7 @@ export function BlockedModsDialog({
 
           {/* Mods list */}
           <ScrollArea className="h-[300px] rounded-md border">
-            <div className="p-4 space-y-3">
+            <div className="p-4 pr-6 space-y-3">
               {blockedMods.map((mod) => (
                 <div
                   key={`${mod.project_id}-${mod.file_id}`}
@@ -239,7 +248,7 @@ export function BlockedModsDialog({
                   )}
                 >
                   {/* Status icon */}
-                  <div className="mt-0.5">
+                  <div className="mt-0.5 shrink-0">
                     {mod.matched ? (
                       <Check className="h-5 w-5 text-green-500" />
                     ) : (
@@ -248,13 +257,13 @@ export function BlockedModsDialog({
                   </div>
 
                   {/* Mod info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium truncate">{mod.name}</div>
-                    <div className="text-sm text-muted-foreground truncate">
+                  <div className="flex-1 min-w-0 overflow-hidden">
+                    <div className="font-medium break-words [overflow-wrap:anywhere]">{mod.name}</div>
+                    <div className="text-sm text-muted-foreground break-all">
                       {mod.filename}
                     </div>
                     {mod.matched && mod.local_path && (
-                      <div className="text-xs text-green-600 truncate mt-1">
+                      <div className="text-xs text-green-600 break-all mt-1">
                         Found: {mod.local_path}
                       </div>
                     )}

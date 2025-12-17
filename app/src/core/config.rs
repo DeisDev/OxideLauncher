@@ -507,7 +507,7 @@ fn default_true() -> bool {
 }
 
 fn default_max_downloads() -> usize {
-    4
+    6
 }
 
 fn default_timeout() -> u64 {

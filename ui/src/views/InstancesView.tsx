@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import {
   Plus, Play, Trash2, Info, Pencil, Folder, Copy, FileOutput, FileInput,
@@ -71,6 +72,19 @@ interface InstanceInfo {
   total_played_seconds: number;
   group?: string | null;
   date_created?: string;
+}
+
+// Helper to get instance icon URL - converts file paths to asset URLs
+function getInstanceIconUrl(icon: string | null): string | null {
+  if (!icon || icon === "default") {
+    return null;
+  }
+  // If the icon looks like a file path (contains backslash or forward slash with drive letter or starts with /)
+  // convert it to an asset URL that Tauri can serve
+  if (icon.includes("\\") || icon.includes("/") || icon.match(/^[A-Za-z]:/)) {
+    return convertFileSrc(icon);
+  }
+  return icon;
 }
 
 // Helper to get mod loader icon
@@ -506,6 +520,7 @@ export function InstancesView() {
   // Instance card component for grid view
   const InstanceCard = ({ instance }: { instance: InstanceInfo }) => {
     const loaderInfo = getModLoaderIcon(instance.mod_loader);
+    const iconUrl = getInstanceIconUrl(instance.icon);
     
     // Color coding for mod loaders
     const getLoaderColor = (loader: string) => {
@@ -533,9 +548,9 @@ export function InstancesView() {
           >
             {/* Fixed height image container */}
             <div className="h-24 sm:h-28 flex items-center justify-center bg-gradient-to-br from-muted to-card overflow-hidden flex-shrink-0">
-              {instance.icon && instance.icon !== "default" ? (
+              {iconUrl ? (
                 <img
-                  src={instance.icon}
+                  src={iconUrl}
                   alt={instance.name}
                   className="w-full h-full object-cover"
                 />
@@ -605,6 +620,7 @@ export function InstancesView() {
   // Instance row component for list view
   const InstanceRow = ({ instance }: { instance: InstanceInfo }) => {
     const loaderInfo = getModLoaderIcon(instance.mod_loader);
+    const iconUrl = getInstanceIconUrl(instance.icon);
     
     // Color coding for mod loaders
     const getLoaderColor = (loader: string) => {
@@ -632,9 +648,9 @@ export function InstancesView() {
           >
             {/* Icon */}
             <div className="h-12 w-12 flex-shrink-0 rounded-lg overflow-hidden bg-gradient-to-br from-muted to-card flex items-center justify-center">
-              {instance.icon && instance.icon !== "default" ? (
+              {iconUrl ? (
                 <img
-                  src={instance.icon}
+                  src={iconUrl}
                   alt={instance.name}
                   className="w-full h-full object-cover"
                 />

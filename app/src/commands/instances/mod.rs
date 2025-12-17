@@ -56,13 +56,34 @@ impl From<&Instance> for InstanceInfo {
             Some(ml) => (ml.loader_type.name().to_string(), Some(ml.version.clone())),
             None => ("Vanilla".to_string(), None),
         };
+        
+        // Convert custom icon path to asset URL or keep as-is for default icons
+        let icon = if inst.icon.starts_with("custom:") {
+            // Extract filename from "custom:icon.png" format
+            let filename = inst.icon.trim_start_matches("custom:");
+            let icon_path = inst.path.join(filename);
+            if icon_path.exists() {
+                // Convert to asset:// URL that Tauri can serve
+                // Use convertFileSrc on frontend instead, just provide the path
+                Some(icon_path.to_string_lossy().to_string())
+            } else {
+                // Custom icon doesn't exist, use default
+                None
+            }
+        } else if inst.icon == "default" {
+            None
+        } else {
+            // Named default icon
+            Some(inst.icon.clone())
+        };
+        
         InstanceInfo {
             id: inst.id.clone(),
             name: inst.name.clone(),
             minecraft_version: inst.minecraft_version.clone(),
             mod_loader,
             mod_loader_version,
-            icon: Some(inst.icon.clone()),
+            icon,
             last_played: inst.last_played.map(|dt| dt.to_string()),
             total_played_seconds: inst.total_played_seconds,
             group: inst.group.clone(),

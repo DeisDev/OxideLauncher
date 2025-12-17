@@ -65,31 +65,64 @@ const DIALOG_CONFIGS: Record<DialogWindowLabel, Omit<DialogWindowConfig, "label"
 };
 
 // Currently open dialog window (only one allowed at a time)
+// Note: This state is only valid within the main window context
 let currentDialogWindow: WebviewWindow | null = null;
 let currentDialogLabel: DialogWindowLabel | null = null;
 
 /**
  * Close any currently open dialog window
+ * Works from either main window or dialog window context
  */
 export async function closeCurrentDialog(): Promise<void> {
-  if (currentDialogWindow) {
-    try {
-      await currentDialogWindow.close();
-    } catch {
-      // Window might already be closed
+  try {
+    // Get all open windows and close any dialog windows
+    const windows = await getAllWebviewWindows();
+    const dialogLabels = Object.values(WINDOW_LABELS);
+    
+    for (const window of windows) {
+      if (dialogLabels.includes(window.label as DialogWindowLabel)) {
+        try {
+          await window.close();
+        } catch {
+          // Window might already be closed
+        }
+      }
     }
+    
+    // Clear state
     currentDialogWindow = null;
     currentDialogLabel = null;
+    
     // Emit event so main window can hide overlay
     await emitDialogClosed();
+  } catch (error) {
+    console.error("Failed to close dialog:", error);
   }
 }
 
 /**
  * Check if a specific dialog is currently open
  */
-export function isDialogOpen(label: DialogWindowLabel): boolean {
-  return currentDialogLabel === label && currentDialogWindow !== null;
+export async function isDialogOpen(label: DialogWindowLabel): Promise<boolean> {
+  try {
+    const windows = await getAllWebviewWindows();
+    return windows.some(w => w.label === label);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Check if any dialog is currently open
+ */
+export async function isAnyDialogOpen(): Promise<boolean> {
+  try {
+    const windows = await getAllWebviewWindows();
+    const dialogLabels = Object.values(WINDOW_LABELS);
+    return windows.some(w => dialogLabels.includes(w.label as DialogWindowLabel));
+  } catch {
+    return false;
+  }
 }
 
 /**

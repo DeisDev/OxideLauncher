@@ -235,6 +235,8 @@ fn main() {
             commands::mods::get_mod_details,
             commands::mods::get_mod_versions,
             commands::mods::download_mod_version,
+            commands::mods::download_mods_batch,
+            commands::mods::get_mod_categories,
             // Java commands
             commands::java::detect_java,
             commands::java::find_java_for_minecraft,
@@ -259,6 +261,7 @@ fn main() {
             commands::resources::get_resource_pack_details,
             commands::resources::get_resource_pack_versions,
             commands::resources::download_resource_pack_version,
+            commands::resources::download_resource_packs_batch,
             commands::resources::add_local_resource_pack,
             commands::resources::add_local_resource_pack_from_bytes,
             // Shader pack commands
@@ -269,12 +272,9 @@ fn main() {
             commands::resources::get_shader_pack_details,
             commands::resources::get_shader_pack_versions,
             commands::resources::download_shader_pack_version,
+            commands::resources::download_shader_packs_batch,
             commands::resources::add_local_shader_pack,
             commands::resources::add_local_shader_pack_from_bytes,
-            commands::resources::get_shader_pack_details,
-            commands::resources::get_shader_pack_versions,
-            commands::resources::download_shader_pack_version,
-            commands::resources::add_local_shader_pack,
             // Screenshot commands
             commands::screenshots::list_screenshots,
             commands::screenshots::delete_screenshot,

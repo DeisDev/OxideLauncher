@@ -536,46 +536,41 @@ export function ModBrowserPage() {
     return queue.some(q => q.id === modId);
   };
 
-  // Install all mods in queue
+  // Install all mods in queue using parallel downloads
   const installMods = async () => {
     setIsInstalling(true);
     setInstallProgress("Preparing downloads...");
     
     try {
       // Flatten queue with dependencies
-      const modsToInstall: { id: string; versionId: string; platform: string }[] = [];
+      const modsToInstall: { mod_id: string; version_id: string; platform: string }[] = [];
       
       for (const mod of queue) {
         for (const dep of mod.dependencies) {
-          if (!modsToInstall.some(m => m.id === dep.id)) {
+          if (!modsToInstall.some(m => m.mod_id === dep.id)) {
             modsToInstall.push({
-              id: dep.id,
-              versionId: dep.version.id,
+              mod_id: dep.id,
+              version_id: dep.version.id,
               platform: dep.platform,
             });
           }
         }
-        if (!modsToInstall.some(m => m.id === mod.id)) {
+        if (!modsToInstall.some(m => m.mod_id === mod.id)) {
           modsToInstall.push({
-            id: mod.id,
-            versionId: mod.version.id,
+            mod_id: mod.id,
+            version_id: mod.version.id,
             platform: mod.platform,
           });
         }
       }
 
-      // Download each mod
-      for (let i = 0; i < modsToInstall.length; i++) {
-        const mod = modsToInstall[i];
-        setInstallProgress(`Downloading ${i + 1}/${modsToInstall.length}...`);
-        
-        await invoke("download_mod_version", {
-          instanceId,
-          modId: mod.id,
-          versionId: mod.versionId,
-          platform: mod.platform,
-        });
-      }
+      setInstallProgress(`Downloading ${modsToInstall.length} mod${modsToInstall.length !== 1 ? 's' : ''} in parallel...`);
+
+      // Use batch download command for parallel downloads
+      await invoke("download_mods_batch", {
+        instanceId,
+        mods: modsToInstall,
+      });
 
       setInstallProgress("Installation complete!");
       setQueue([]);

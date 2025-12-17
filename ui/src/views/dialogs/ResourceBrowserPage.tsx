@@ -203,6 +203,7 @@ export function ResourceBrowserPage() {
       detailsCommand: "get_resource_pack_details",
       versionsCommand: "get_resource_pack_versions",
       downloadCommand: "download_resource_pack_version",
+      batchDownloadCommand: "download_resource_packs_batch",
       eventName: "resourcepacks-changed",
     },
     shaderpack: {
@@ -212,6 +213,7 @@ export function ResourceBrowserPage() {
       detailsCommand: "get_shader_pack_details",
       versionsCommand: "get_shader_pack_versions",
       downloadCommand: "download_shader_pack_version",
+      batchDownloadCommand: "download_shader_packs_batch",
       eventName: "shaderpacks-changed",
     },
   };
@@ -473,23 +475,26 @@ export function ResourceBrowserPage() {
     return queue.some(q => q.id === resourceId);
   };
 
-  // Install all resources in queue
+  // Install all resources in queue using parallel downloads
   const installResources = async () => {
     setIsInstalling(true);
     setInstallProgress("Preparing downloads...");
     
     try {
-      for (let i = 0; i < queue.length; i++) {
-        const resource = queue[i];
-        setInstallProgress(`Downloading ${i + 1}/${queue.length}: ${resource.name}...`);
-        
-        await invoke(config.downloadCommand, {
-          instanceId,
-          resourceId: resource.id,
-          versionId: resource.version.id,
-          platform: resource.platform,
-        });
-      }
+      // Build the list of resources to download
+      const resourcesToInstall = queue.map(resource => ({
+        resource_id: resource.id,
+        version_id: resource.version.id,
+        platform: resource.platform,
+      }));
+
+      setInstallProgress(`Downloading ${resourcesToInstall.length} ${resourceType === "resourcepack" ? "resource pack" : "shader pack"}${resourcesToInstall.length !== 1 ? 's' : ''} in parallel...`);
+
+      // Use batch download command for parallel downloads
+      await invoke(config.batchDownloadCommand, {
+        instanceId,
+        resources: resourcesToInstall,
+      });
 
       setInstallProgress("Installation complete!");
       setQueue([]);

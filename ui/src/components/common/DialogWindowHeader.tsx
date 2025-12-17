@@ -14,16 +14,32 @@ interface DialogWindowHeaderProps {
  * Use this at the top of all dialog pages that open in separate windows.
  */
 export function DialogWindowHeader({ title, icon, children }: DialogWindowHeaderProps) {
-  const handleClose = async () => {
-    try {
-      // Emit dialog-closed event first so main window removes overlay
-      await emit("dialog-closed", {});
-      // Then close the window
-      const currentWindow = getCurrentWebviewWindow();
-      await currentWindow.close();
-    } catch (error) {
-      console.error("Failed to close window:", error);
-    }
+  const handleClose = () => {
+    // Fire-and-forget close operation to avoid blocking UI
+    (async () => {
+      try {
+        // Emit dialog-closed event first so main window removes overlay
+        await emit("dialog-closed", {});
+      } catch {
+        // Ignore emit errors
+      }
+      
+      try {
+        // Then close the window
+        const currentWindow = getCurrentWebviewWindow();
+        // Use destroy() for immediate close if close() doesn't work
+        await currentWindow.close();
+      } catch (error) {
+        console.error("Failed to close window:", error);
+        // Try destroy as fallback
+        try {
+          const currentWindow = getCurrentWebviewWindow();
+          await currentWindow.destroy();
+        } catch {
+          // Ignore
+        }
+      }
+    })();
   };
 
   return (

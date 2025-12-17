@@ -1,11 +1,12 @@
 import { ReactNode, useState, useEffect } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { 
   Gamepad2, User, Settings, Newspaper, Download, FolderOpen, 
   HelpCircle, ChevronDown, ChevronRight, Bug, MessageSquare, 
   Info, Globe, BookOpen, Folder
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { cn } from "@/lib/utils";
 import { useConfig } from "@/hooks/useConfig";
 import {
@@ -81,6 +82,7 @@ function AboutDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (ope
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
+  const navigate = useNavigate();
   const { config } = useConfig();
   const [foldersOpen, setFoldersOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -113,6 +115,22 @@ export function Layout({ children }: LayoutProps) {
       cleanupPromise.then(cleanup => cleanup());
     };
   }, []);
+
+  // Listen for navigation events from dialog windows
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined;
+    
+    (async () => {
+      unlisten = await listen("navigate-to-instances", () => {
+        // Navigate to instances view when modpack install completes
+        navigate("/");
+      });
+    })();
+    
+    return () => {
+      unlisten?.();
+    };
+  }, [navigate]);
 
   // Main navigation items
   const navItems = [

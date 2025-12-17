@@ -77,6 +77,7 @@ export function ModsTab({ instanceId, instance }: ModsTabProps) {
   const [selectedMods, setSelectedMods] = useState<Set<string>>(new Set());
   const [deleteModDialog, setDeleteModDialog] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isLoadingMods, setIsLoadingMods] = useState(true);
   
   // Sorting state
   const [sortColumn, setSortColumn] = useState<SortColumn>("name");
@@ -161,12 +162,15 @@ export function ModsTab({ instanceId, instance }: ModsTabProps) {
 
   const loadInstalledMods = async () => {
     try {
+      setIsLoadingMods(true);
       const mods = await invoke<InstalledMod[]>("get_installed_mods", {
         instanceId,
       });
       setInstalledMods(mods);
     } catch (error) {
       console.error("Failed to load installed mods:", error);
+    } finally {
+      setIsLoadingMods(false);
     }
   };
 
@@ -592,7 +596,16 @@ export function ModsTab({ instanceId, instance }: ModsTabProps) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredMods.length === 0 ? (
+              {isLoadingMods ? (
+                <TableRow>
+                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                    <div className="flex items-center justify-center gap-2">
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                      <span>Loading mods...</span>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : filteredMods.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                     {installedMods.length === 0 
