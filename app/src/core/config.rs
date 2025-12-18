@@ -151,6 +151,11 @@ impl Config {
         self.data_dir.join("icons")
     }
 
+    /// Get the skins directory
+    pub fn skins_dir(&self) -> PathBuf {
+        self.data_dir.join("skins")
+    }
+
     /// Get the themes directory
     pub fn themes_dir(&self) -> PathBuf {
         self.data_dir.join("themes")

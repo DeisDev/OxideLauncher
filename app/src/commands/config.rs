@@ -67,6 +67,7 @@ pub async fn open_launcher_folder(state: State<'_, AppState>, folder_type: Strin
         "assets" => config.assets_dir(),
         "libraries" => config.libraries_dir(),
         "icons" => config.icons_dir(),
+        "skins" => config.skins_dir(),
         "cache" => config.cache_dir(),
         "meta" => config.meta_dir(),
         "data" => config.data_dir(),

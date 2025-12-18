@@ -176,6 +176,8 @@ struct McCape {
     url: String,
     #[serde(default)]
     state: String,
+    #[serde(default)]
+    alias: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -801,6 +803,7 @@ async fn get_minecraft_profile(client: &reqwest::Client, mc_token: &str) -> Resu
         .map(|c| CapeInfo {
             id: c.id,
             url: c.url,
+            alias: c.alias,
             cached_data: None,
         });
     

@@ -17,6 +17,7 @@ export const WINDOW_LABELS = {
   MOD_BROWSER: "mod-browser",
   RESOURCE_BROWSER: "resource-browser",
   SHADER_BROWSER: "shader-browser",
+  SKIN_MANAGEMENT: "skin-management",
 } as const;
 
 export type DialogWindowLabel = typeof WINDOW_LABELS[keyof typeof WINDOW_LABELS];
@@ -37,6 +38,7 @@ const DIALOG_ROUTES: Record<DialogWindowLabel, string> = {
   [WINDOW_LABELS.MOD_BROWSER]: "/dialog/mod-browser",
   [WINDOW_LABELS.RESOURCE_BROWSER]: "/dialog/resource-browser",
   [WINDOW_LABELS.SHADER_BROWSER]: "/dialog/shader-browser",
+  [WINDOW_LABELS.SKIN_MANAGEMENT]: "/dialog/skin-management",
 };
 
 const DIALOG_CONFIGS: Record<DialogWindowLabel, Omit<DialogWindowConfig, "label">> = {
@@ -71,6 +73,14 @@ const DIALOG_CONFIGS: Record<DialogWindowLabel, Omit<DialogWindowConfig, "label"
     height: 800,
     minWidth: 900,
     minHeight: 600,
+  },
+  [WINDOW_LABELS.SKIN_MANAGEMENT]: {
+    url: DIALOG_ROUTES[WINDOW_LABELS.SKIN_MANAGEMENT],
+    title: "Skin Management",
+    width: 900,
+    height: 700,
+    minWidth: 700,
+    minHeight: 550,
   },
 };
 

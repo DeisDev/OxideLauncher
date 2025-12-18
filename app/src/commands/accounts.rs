@@ -661,7 +661,7 @@ pub async fn get_player_profile(
         capes: profile.capes.iter().map(|c| CapeInfoResponse {
             id: c.id.clone(),
             url: c.url.clone(),
-            alias: None,
+            alias: c.alias.clone(),
             is_active: profile.active_cape.as_ref().map(|a| a.id == c.id).unwrap_or(false),
         }).collect(),
         active_skin: profile.active_skin.map(|s| SkinInfoResponse {
@@ -676,7 +676,7 @@ pub async fn get_player_profile(
         active_cape: profile.active_cape.map(|c| CapeInfoResponse {
             id: c.id.clone(),
             url: c.url.clone(),
-            alias: None,
+            alias: c.alias.clone(),
             is_active: true,
         }),
     })
@@ -943,5 +943,72 @@ pub async fn download_skin_image(
 
     use base64::Engine;
     Ok(base64::engine::general_purpose::STANDARD.encode(&image_data))
+}
+
+/// Cache a skin image to the skins folder and return the path
+#[tauri::command(rename_all = "camelCase")]
+pub async fn cache_skin_image(
+    state: State<'_, AppState>,
+    uuid: String,
+    skin_url: String,
+) -> Result<String, String> {
+    let data_dir = {
+        let config = state.config.lock().unwrap();
+        config.data_dir()
+    };
+
+    let skins_folder = skins::get_skins_folder(&data_dir);
+    tokio::fs::create_dir_all(&skins_folder)
+        .await
+        .map_err(|e| format!("Failed to create skins folder: {}", e))?;
+
+    let skin_path = skins_folder.join(format!("{}.png", uuid));
+
+    // Check if already cached
+    if skin_path.exists() {
+        return Ok(skin_path.to_string_lossy().to_string());
+    }
+
+    // Download and cache
+    let image_data = skins::download_skin_image(&skin_url)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    tokio::fs::write(&skin_path, &image_data)
+        .await
+        .map_err(|e| format!("Failed to cache skin: {}", e))?;
+
+    Ok(skin_path.to_string_lossy().to_string())
+}
+
+/// Get cached skin path if it exists
+#[tauri::command(rename_all = "camelCase")]
+pub async fn get_cached_skin_path(
+    state: State<'_, AppState>,
+    uuid: String,
+) -> Result<Option<String>, String> {
+    let data_dir = {
+        let config = state.config.lock().unwrap();
+        config.data_dir()
+    };
+
+    let skins_folder = skins::get_skins_folder(&data_dir);
+    let skin_path = skins_folder.join(format!("{}.png", uuid));
+
+    if skin_path.exists() {
+        Ok(Some(skin_path.to_string_lossy().to_string()))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Read a file as bytes (for file upload without CSP issues)
+#[tauri::command(rename_all = "camelCase")]
+pub async fn read_file_bytes(
+    file_path: String,
+) -> Result<Vec<u8>, String> {
+    tokio::fs::read(&file_path)
+        .await
+        .map_err(|e| format!("Failed to read file: {}", e))
 }
 

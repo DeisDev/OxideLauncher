@@ -202,6 +202,9 @@ fn main() {
             commands::accounts::open_skins_folder,
             commands::accounts::set_default_account,
             commands::accounts::download_skin_image,
+            commands::accounts::cache_skin_image,
+            commands::accounts::get_cached_skin_path,
+            commands::accounts::read_file_bytes,
             // Config commands
             commands::config::get_config,
             commands::config::update_config,

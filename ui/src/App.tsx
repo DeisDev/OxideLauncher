@@ -9,7 +9,7 @@ import { SettingsView } from "./views/SettingsView";
 import { CreateInstanceView } from "./views/CreateInstanceView";
 import { NewsView } from "./views/NewsView";
 import { UpdateView } from "./views/UpdateView";
-import { ModpackBrowserPage, ModBrowserPage, ResourceBrowserPage } from "./views/dialogs";
+import { ModpackBrowserPage, ModBrowserPage, ResourceBrowserPage, SkinManagementPage } from "./views/dialogs";
 
 // Layout wrapper component that renders children via Outlet
 function MainLayout() {
@@ -30,6 +30,7 @@ function App() {
             <Route path="/dialog/modpack-browser" element={<ModpackBrowserPage />} />
             <Route path="/dialog/mod-browser" element={<ModBrowserPage />} />
             <Route path="/dialog/resource-browser" element={<ResourceBrowserPage />} />
+            <Route path="/dialog/skin-management" element={<SkinManagementPage />} />
             
             {/* Main app routes with Layout */}
             <Route element={<MainLayout />}>

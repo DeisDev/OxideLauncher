@@ -178,6 +178,7 @@ pub async fn get_player_profile(access_token: &str) -> Result<PlayerProfile> {
     let capes: Vec<CapeInfo> = profile.capes.iter().map(|c| CapeInfo {
         id: c.id.clone(),
         url: c.url.clone(),
+        alias: c.alias.clone(),
         cached_data: None,
     }).collect();
     
@@ -198,6 +199,7 @@ pub async fn get_player_profile(access_token: &str) -> Result<PlayerProfile> {
         .map(|c| CapeInfo {
             id: c.id.clone(),
             url: c.url.clone(),
+            alias: c.alias.clone(),
             cached_data: None,
         });
     

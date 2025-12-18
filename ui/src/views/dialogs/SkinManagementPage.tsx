@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { open as openFile } from "@tauri-apps/plugin-dialog";
+import { emit } from "@tauri-apps/api/event";
 import {
   Loader2,
   Upload,
@@ -20,44 +22,34 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SkinViewer3D, CapeViewer3D } from "@/components/common";
+import { DialogWindowHeader } from "@/components/common/DialogWindowHeader";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 import {
-  AccountInfo,
   PlayerProfileResponse,
   FetchedSkinResponse,
 } from "@/types";
 
-interface SkinManagementDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  account: AccountInfo;
-  onAccountUpdated: () => void;
-}
+export function SkinManagementPage() {
+  const [searchParams] = useSearchParams();
+  
+  // Account parameters from URL
+  const accountId = searchParams.get("accountId") || "";
+  const accountUsername = searchParams.get("username") || "";
+  const accountUuid = searchParams.get("uuid") || "";
+  const accountType = (searchParams.get("accountType") || "Microsoft") as "Microsoft" | "Offline";
 
-export function SkinManagementDialog({
-  open,
-  onOpenChange,
-  account,
-  onAccountUpdated,
-}: SkinManagementDialogProps) {
   const [profile, setProfile] = useState<PlayerProfileResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -85,17 +77,19 @@ export function SkinManagementDialog({
   );
   const [loadingImport, setLoadingImport] = useState(false);
   const [selectedCape, setSelectedCape] = useState<string | null>(null);
-  const [hoveredCapeUrl, setHoveredCapeUrl] = useState<string | null>(null);
+  const [_hoveredCapeUrl, setHoveredCapeUrl] = useState<string | null>(null);
 
   // Drag-drop state
   const [isDragging, setIsDragging] = useState(false);
 
-  // Load profile when dialog opens
+  // Load profile when page loads
   useEffect(() => {
-    if (open && account.account_type === "Microsoft") {
+    if (accountId && accountType === "Microsoft") {
       loadProfile();
+    } else {
+      setLoading(false);
     }
-  }, [open, account.id]);
+  }, [accountId, accountType]);
 
   // Update selected cape when profile loads
   useEffect(() => {
@@ -135,13 +129,13 @@ export function SkinManagementDialog({
 
       // Also cache the skin for future use
       invoke("cache_skin_image", {
-        uuid: account.uuid,
+        uuid: accountUuid,
         skinUrl: profile.active_skin.url,
       }).catch(console.error);
     } else {
       setSkinDataUrl(null);
     }
-  }, [profile?.active_skin?.url, loadSkinImage, account.uuid]);
+  }, [profile?.active_skin?.url, loadSkinImage, accountUuid]);
 
   // Load cape image when profile changes
   useEffect(() => {
@@ -158,7 +152,7 @@ export function SkinManagementDialog({
 
     try {
       const data = await invoke<PlayerProfileResponse>("get_player_profile", {
-        accountId: account.id,
+        accountId: accountId,
       });
       setProfile(data);
     } catch (err) {
@@ -173,6 +167,11 @@ export function SkinManagementDialog({
     setTimeout(() => setSuccessMessage(null), 3000);
   };
 
+  // Emit account updated event for main window
+  const onAccountUpdated = () => {
+    emit("account-updated", {});
+  };
+
   const handleChangeSkinUrl = async () => {
     if (!skinUrl.trim()) return;
 
@@ -181,7 +180,7 @@ export function SkinManagementDialog({
 
     try {
       await invoke("change_skin_url", {
-        accountId: account.id,
+        accountId: accountId,
         skinUrl: skinUrl.trim(),
         variant: selectedVariant,
       });
@@ -214,7 +213,7 @@ export function SkinManagementDialog({
       });
 
       await invoke("upload_skin", {
-        accountId: account.id,
+        accountId: accountId,
         imageData: bytes,
         variant: selectedVariant,
       });
@@ -266,7 +265,7 @@ export function SkinManagementDialog({
 
     try {
       await invoke("import_skin_from_username", {
-        accountId: account.id,
+        accountId: accountId,
         username: importedSkin.username,
         useOriginalVariant: false,
         overrideVariant: selectedVariant,
@@ -290,7 +289,7 @@ export function SkinManagementDialog({
     setError(null);
 
     try {
-      await invoke("reset_skin", { accountId: account.id });
+      await invoke("reset_skin", { accountId: accountId });
       showSuccess("Skin reset to default!");
       loadProfile();
       onAccountUpdated();
@@ -307,11 +306,11 @@ export function SkinManagementDialog({
 
     try {
       if (capeId) {
-        await invoke("set_cape", { accountId: account.id, capeId });
+        await invoke("set_cape", { accountId: accountId, capeId });
         setSelectedCape(capeId);
         showSuccess("Cape updated!");
       } else {
-        await invoke("hide_cape", { accountId: account.id });
+        await invoke("hide_cape", { accountId: accountId });
         setSelectedCape(null);
         showSuccess("Cape hidden!");
       }
@@ -336,7 +335,7 @@ export function SkinManagementDialog({
     openExternal("https://www.minecraftskins.com/");
   };
 
-  // Handle variant change for preview (doesn't apply until skin is uploaded/changed)
+  // Handle variant change for preview
   const handleVariantChange = (variant: "classic" | "slim") => {
     setSelectedVariant(variant);
     setPreviewVariant(variant);
@@ -379,7 +378,7 @@ export function SkinManagementDialog({
         const bytes = Array.from(new Uint8Array(arrayBuffer));
 
         await invoke("upload_skin", {
-          accountId: account.id,
+          accountId: accountId,
           imageData: bytes,
           variant: selectedVariant,
         });
@@ -393,19 +392,18 @@ export function SkinManagementDialog({
         setSaving(false);
       }
     },
-    [account.id, selectedVariant, onAccountUpdated]
+    [accountId, selectedVariant]
   );
 
   // Offline account message
-  if (account.account_type === "Offline") {
+  if (accountType === "Offline") {
     return (
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Skin Management</DialogTitle>
-            <DialogDescription>Manage your Minecraft skin</DialogDescription>
-          </DialogHeader>
-
+      <div className="flex flex-col h-screen bg-background">
+        <DialogWindowHeader 
+          title={`Skin Management - ${accountUsername}`}
+          icon={<User className="h-5 w-5" />}
+        />
+        <div className="flex-1 p-6">
           <Alert>
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>
@@ -413,39 +411,28 @@ export function SkinManagementDialog({
               accounts cannot change their skins through the launcher.
             </AlertDescription>
           </Alert>
-
-          <div className="flex justify-end">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
-              Close
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+        </div>
+      </div>
     );
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh]">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <User className="h-5 w-5" />
-            Skin Management - {account.username}
-          </DialogTitle>
-          <DialogDescription>
-            Customize your Minecraft appearance
-          </DialogDescription>
-        </DialogHeader>
+    <div className="flex flex-col h-screen bg-background">
+      <DialogWindowHeader 
+        title={`Skin Management - ${accountUsername}`}
+        icon={<User className="h-5 w-5" />}
+      />
 
+      <div className="flex-1 p-6 overflow-hidden">
         {error && (
-          <Alert variant="destructive">
+          <Alert variant="destructive" className="mb-4">
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
 
         {successMessage && (
-          <Alert className="border-green-500 text-green-500">
+          <Alert className="border-green-500 text-green-500 mb-4">
             <Check className="h-4 w-4" />
             <AlertDescription>{successMessage}</AlertDescription>
           </Alert>
@@ -457,7 +444,7 @@ export function SkinManagementDialog({
             <span className="ml-2">Loading profile...</span>
           </div>
         ) : (
-          <div className="grid grid-cols-[220px_1fr] gap-6">
+          <div className="grid grid-cols-[240px_1fr] gap-6 h-full">
             {/* Left side - 3D skin preview */}
             <div className="flex flex-col items-center gap-3">
               <div className="text-sm font-medium text-muted-foreground">
@@ -472,12 +459,12 @@ export function SkinManagementDialog({
                         skinUrl={skinDataUrl}
                         capeUrl={capeDataUrl}
                         variant={previewVariant}
-                        width={180}
-                        height={280}
+                        width={200}
+                        height={320}
                         autoRotate={true}
                         autoRotateSpeed={1}
                         zoom={0.85}
-                        fallbackText={account.username.charAt(0).toUpperCase()}
+                        fallbackText={accountUsername.charAt(0).toUpperCase()}
                       />
                     </div>
                   </TooltipTrigger>
@@ -538,8 +525,8 @@ export function SkinManagementDialog({
             </div>
 
             {/* Right side - Actions */}
-            <div className="flex-1">
-              <Tabs defaultValue="upload" className="w-full">
+            <div className="flex-1 min-h-0">
+              <Tabs defaultValue="upload" className="h-full flex flex-col">
                 <TabsList className="grid w-full grid-cols-4">
                   <TabsTrigger value="upload">Upload</TabsTrigger>
                   <TabsTrigger value="url">From URL</TabsTrigger>
@@ -547,7 +534,7 @@ export function SkinManagementDialog({
                   <TabsTrigger value="cape">Capes</TabsTrigger>
                 </TabsList>
 
-                <ScrollArea className="h-[380px] mt-4 pr-4">
+                <ScrollArea className="flex-1 mt-4 pr-4">
                   {/* Upload Tab */}
                   <TabsContent value="upload" className="space-y-4 mt-0">
                     <div className="rounded-lg border p-4 space-y-4">
@@ -567,18 +554,18 @@ export function SkinManagementDialog({
                           className="flex gap-6"
                         >
                           <div className="flex items-center space-x-2">
-                            <RadioGroupItem value="classic" id="classic" />
+                            <RadioGroupItem value="classic" id="classic-pop" />
                             <Label
-                              htmlFor="classic"
+                              htmlFor="classic-pop"
                               className="cursor-pointer font-normal"
                             >
                               Classic (Steve)
                             </Label>
                           </div>
                           <div className="flex items-center space-x-2">
-                            <RadioGroupItem value="slim" id="slim" />
+                            <RadioGroupItem value="slim" id="slim-pop" />
                             <Label
-                              htmlFor="slim"
+                              htmlFor="slim-pop"
                               className="cursor-pointer font-normal"
                             >
                               Slim (Alex)
@@ -672,21 +659,18 @@ export function SkinManagementDialog({
                           className="flex gap-6"
                         >
                           <div className="flex items-center space-x-2">
-                            <RadioGroupItem
-                              value="classic"
-                              id="url-classic"
-                            />
+                            <RadioGroupItem value="classic" id="classic-url-pop" />
                             <Label
-                              htmlFor="url-classic"
+                              htmlFor="classic-url-pop"
                               className="cursor-pointer font-normal"
                             >
                               Classic (Steve)
                             </Label>
                           </div>
                           <div className="flex items-center space-x-2">
-                            <RadioGroupItem value="slim" id="url-slim" />
+                            <RadioGroupItem value="slim" id="slim-url-pop" />
                             <Label
-                              htmlFor="url-slim"
+                              htmlFor="slim-url-pop"
                               className="cursor-pointer font-normal"
                             >
                               Slim (Alex)
@@ -702,23 +686,25 @@ export function SkinManagementDialog({
                         Skin URL
                       </Label>
                       <p className="text-sm text-muted-foreground">
-                        Enter a direct URL to a skin PNG image
+                        Enter a direct URL to a skin PNG file
                       </p>
                       <div className="flex gap-2">
                         <Input
                           placeholder="https://example.com/skin.png"
                           value={skinUrl}
                           onChange={(e) => setSkinUrl(e.target.value)}
+                          disabled={saving}
                         />
                         <Button
                           onClick={handleChangeSkinUrl}
                           disabled={saving || !skinUrl.trim()}
                         >
                           {saving ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                           ) : (
-                            <Check className="h-4 w-4" />
+                            <Download className="mr-2 h-4 w-4" />
                           )}
+                          Apply
                         </Button>
                       </div>
                     </div>
@@ -726,271 +712,217 @@ export function SkinManagementDialog({
 
                   {/* Import Tab */}
                   <TabsContent value="import" className="space-y-4 mt-0">
+                    <div className="rounded-lg border p-4 space-y-4">
+                      <div>
+                        <Label className="text-base font-semibold flex items-center gap-2">
+                          <Sparkles className="h-4 w-4" />
+                          Model Type
+                        </Label>
+                        <p className="text-sm text-muted-foreground mb-3">
+                          Select the model type to use with the imported skin
+                        </p>
+                        <RadioGroup
+                          value={selectedVariant}
+                          onValueChange={(v) =>
+                            handleVariantChange(v as "classic" | "slim")
+                          }
+                          className="flex gap-6"
+                        >
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem
+                              value="classic"
+                              id="classic-import-pop"
+                            />
+                            <Label
+                              htmlFor="classic-import-pop"
+                              className="cursor-pointer font-normal"
+                            >
+                              Classic (Steve)
+                            </Label>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="slim" id="slim-import-pop" />
+                            <Label
+                              htmlFor="slim-import-pop"
+                              className="cursor-pointer font-normal"
+                            >
+                              Slim (Alex)
+                            </Label>
+                          </div>
+                        </RadioGroup>
+                      </div>
+                    </div>
+
                     <div className="rounded-lg border p-4 space-y-3">
                       <Label className="text-base font-semibold flex items-center gap-2">
-                        <Download className="h-4 w-4" />
+                        <User className="h-4 w-4" />
                         Import from Player
                       </Label>
                       <p className="text-sm text-muted-foreground">
-                        Enter a Minecraft username to preview and import their
-                        skin
+                        Enter a Minecraft username to copy their skin
                       </p>
                       <div className="flex gap-2">
                         <Input
-                          placeholder="Enter username..."
+                          placeholder="Username"
                           value={importUsername}
                           onChange={(e) => setImportUsername(e.target.value)}
-                          onKeyDown={(e) =>
-                            e.key === "Enter" && handleImportFromUsername()
-                          }
+                          disabled={loadingImport || saving}
                         />
                         <Button
                           onClick={handleImportFromUsername}
-                          disabled={loadingImport || !importUsername.trim()}
+                          disabled={
+                            loadingImport || saving || !importUsername.trim()
+                          }
                         >
                           {loadingImport ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                           ) : (
-                            <Download className="h-4 w-4" />
+                            <Download className="mr-2 h-4 w-4" />
                           )}
+                          Fetch
                         </Button>
                       </div>
                     </div>
 
+                    {/* Imported skin preview */}
                     {importedSkin && (
                       <div className="rounded-lg border p-4 space-y-4">
-                        <div className="flex gap-4">
-                          <div className="flex flex-col items-center gap-2">
-                            <SkinViewer3D
-                              skinUrl={importedSkinDataUrl}
-                              variant={
-                                importedSkin.skin_variant as "classic" | "slim"
-                              }
-                              width={120}
-                              height={180}
-                              autoRotate={true}
-                              autoRotateSpeed={1.5}
-                              zoom={0.8}
-                              fallbackText={importedSkin.username
-                                .charAt(0)
-                                .toUpperCase()}
-                            />
-                            <div className="text-sm font-medium">
+                        <div className="flex items-start gap-4">
+                          <SkinViewer3D
+                            skinUrl={importedSkinDataUrl}
+                            capeUrl={null}
+                            variant={selectedVariant}
+                            width={120}
+                            height={180}
+                            autoRotate={true}
+                            autoRotateSpeed={0.8}
+                            zoom={0.9}
+                            fallbackText={importedSkin.username
+                              .charAt(0)
+                              .toUpperCase()}
+                          />
+                          <div className="flex-1 space-y-2">
+                            <h4 className="font-semibold">
                               {importedSkin.username}
-                            </div>
+                            </h4>
+                            <p className="text-sm text-muted-foreground">
+                              UUID: {importedSkin.uuid}
+                            </p>
                             <Badge variant="secondary" className="capitalize">
-                              {importedSkin.skin_variant}
+                              {importedSkin.skin_variant} Model
                             </Badge>
-                          </div>
-
-                          <div className="flex-1 space-y-4">
-                            <div>
-                              <Label className="text-sm font-semibold">
-                                Apply as Model Type
-                              </Label>
-                              <RadioGroup
-                                value={selectedVariant}
-                                onValueChange={(v) =>
-                                  handleVariantChange(v as "classic" | "slim")
-                                }
-                                className="flex gap-4 mt-2"
+                            <div className="pt-2">
+                              <Button
+                                onClick={handleApplyImportedSkin}
+                                disabled={saving}
+                                className="w-full"
                               >
-                                <div className="flex items-center space-x-2">
-                                  <RadioGroupItem
-                                    value="classic"
-                                    id="import-classic"
-                                  />
-                                  <Label
-                                    htmlFor="import-classic"
-                                    className="cursor-pointer font-normal"
-                                  >
-                                    Classic
-                                  </Label>
-                                </div>
-                                <div className="flex items-center space-x-2">
-                                  <RadioGroupItem
-                                    value="slim"
-                                    id="import-slim"
-                                  />
-                                  <Label
-                                    htmlFor="import-slim"
-                                    className="cursor-pointer font-normal"
-                                  >
-                                    Slim
-                                  </Label>
-                                </div>
-                              </RadioGroup>
+                                {saving ? (
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Check className="mr-2 h-4 w-4" />
+                                )}
+                                Apply This Skin
+                              </Button>
                             </div>
-
-                            <Button
-                              onClick={handleApplyImportedSkin}
-                              disabled={saving || !importedSkin.skin_url}
-                              className="w-full"
-                            >
-                              {saving ? (
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              ) : (
-                                <Check className="mr-2 h-4 w-4" />
-                              )}
-                              Apply This Skin
-                            </Button>
-
-                            {!importedSkin.skin_url && (
-                              <p className="text-sm text-amber-500">
-                                This player doesn't have a custom skin.
-                              </p>
-                            )}
                           </div>
                         </div>
                       </div>
                     )}
                   </TabsContent>
 
-                  {/* Capes Tab */}
+                  {/* Cape Tab */}
                   <TabsContent value="cape" className="space-y-4 mt-0">
-                    <div className="rounded-lg border p-4 space-y-4">
-                      <div>
-                        <Label className="text-base font-semibold">
-                          Your Capes
-                        </Label>
-                        <p className="text-sm text-muted-foreground mb-4">
-                          Select a cape to wear, or choose to hide your cape
-                        </p>
+                    {profile?.capes && profile.capes.length > 0 ? (
+                      <>
+                        <div className="text-sm text-muted-foreground mb-2">
+                          Select a cape to wear, or hide your cape
+                        </div>
 
-                        {profile?.capes && profile.capes.length > 0 ? (
-                          <div className="flex gap-6">
-                            {/* Cape preview with 3D viewer */}
+                        <div className="grid grid-cols-2 gap-3">
+                          {/* No cape option */}
+                          <div
+                            className={cn(
+                              "relative rounded-lg border-2 p-3 cursor-pointer transition-all hover:border-primary/50",
+                              selectedCape === null
+                                ? "border-primary bg-primary/5"
+                                : "border-muted"
+                            )}
+                            onClick={() => handleSetCape(null)}
+                          >
                             <div className="flex flex-col items-center gap-2">
-                              <div className="text-xs text-muted-foreground">
-                                Preview
+                              <div className="h-[100px] w-[80px] rounded bg-muted flex items-center justify-center">
+                                <User className="h-8 w-8 text-muted-foreground" />
                               </div>
-                              <CapeViewer3D
-                                skinUrl={skinDataUrl}
-                                capeUrl={hoveredCapeUrl || capeDataUrl}
-                                variant={previewVariant}
-                                width={140}
-                                height={200}
-                              />
+                              <span className="text-sm font-medium">
+                                No Cape
+                              </span>
                             </div>
-
-                            {/* Cape selection grid */}
-                            <div className="flex-1">
-                              <div className="grid grid-cols-3 gap-3">
-                                {/* No cape option */}
-                                <button
-                                  onClick={() => handleSetCape(null)}
-                                  onMouseEnter={() => setHoveredCapeUrl(null)}
-                                  onMouseLeave={() => setHoveredCapeUrl(null)}
-                                  disabled={saving}
-                                  className={`flex flex-col items-center p-3 rounded-lg border-2 transition-all hover:bg-muted/50 ${
-                                    selectedCape === null
-                                      ? "border-primary bg-primary/10"
-                                      : "border-border"
-                                  }`}
-                                >
-                                  <div className="w-10 h-14 bg-muted rounded flex items-center justify-center text-muted-foreground text-lg">
-                                    ✕
-                                  </div>
-                                  <span className="text-xs mt-2">No Cape</span>
-                                </button>
-
-                                {/* Cape options */}
-                                {profile.capes.map((cape) => (
-                                  <CapeButton
-                                    key={cape.id}
-                                    cape={cape}
-                                    isSelected={selectedCape === cape.id}
-                                    disabled={saving}
-                                    onClick={() => handleSetCape(cape.id)}
-                                    onHover={setHoveredCapeUrl}
-                                    loadImage={loadSkinImage}
-                                  />
-                                ))}
+                            {selectedCape === null && (
+                              <div className="absolute top-2 right-2">
+                                <Badge variant="default" className="text-xs">
+                                  Active
+                                </Badge>
                               </div>
-                            </div>
+                            )}
                           </div>
-                        ) : (
-                          <Alert>
-                            <AlertDescription>
-                              You don't have any capes. Capes can be obtained
-                              from Minecraft events, Realms, or marketplace
-                              purchases.
-                            </AlertDescription>
-                          </Alert>
-                        )}
-                      </div>
-                    </div>
+
+                          {/* Available capes */}
+                          {profile.capes.map((cape) => (
+                            <div
+                              key={cape.id}
+                              className={cn(
+                                "relative rounded-lg border-2 p-3 cursor-pointer transition-all hover:border-primary/50",
+                                selectedCape === cape.id
+                                  ? "border-primary bg-primary/5"
+                                  : "border-muted"
+                              )}
+                              onClick={() => handleSetCape(cape.id)}
+                              onMouseEnter={() =>
+                                setHoveredCapeUrl(cape.url || null)
+                              }
+                              onMouseLeave={() => setHoveredCapeUrl(null)}
+                            >
+                              <div className="flex flex-col items-center gap-2">
+                                <CapeViewer3D
+                                  skinUrl={skinDataUrl}
+                                  capeUrl={cape.url}
+                                  variant={previewVariant}
+                                  width={80}
+                                  height={100}
+                                />
+                                <span className="text-sm font-medium text-center">
+                                  {cape.alias || cape.id}
+                                </span>
+                              </div>
+                              {selectedCape === cape.id && (
+                                <div className="absolute top-2 right-2">
+                                  <Badge variant="default" className="text-xs">
+                                    Active
+                                  </Badge>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    ) : (
+                      <Alert>
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertDescription>
+                          You don't have any capes available. Capes are obtained
+                          through special events, purchases, or being a Minecraft
+                          Realms subscriber.
+                        </AlertDescription>
+                      </Alert>
+                    )}
                   </TabsContent>
                 </ScrollArea>
               </Tabs>
             </div>
           </div>
         )}
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// Cape button component with image loading
-function CapeButton({
-  cape,
-  isSelected,
-  disabled,
-  onClick,
-  onHover,
-  loadImage,
-}: {
-  cape: { id: string; url: string; alias: string | null; is_active: boolean };
-  isSelected: boolean;
-  disabled: boolean;
-  onClick: () => void;
-  onHover: (url: string | null) => void;
-  loadImage: (url: string) => Promise<string | null>;
-}) {
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setLoading(true);
-    loadImage(cape.url)
-      .then(setImageUrl)
-      .finally(() => setLoading(false));
-  }, [cape.url, loadImage]);
-
-  return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => onHover(imageUrl)}
-      onMouseLeave={() => onHover(null)}
-      disabled={disabled}
-      className={`flex flex-col items-center p-3 rounded-lg border-2 transition-all hover:bg-muted/50 ${
-        isSelected ? "border-primary bg-primary/10" : "border-border"
-      }`}
-    >
-      {loading ? (
-        <div className="w-10 h-14 bg-muted rounded flex items-center justify-center">
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-        </div>
-      ) : imageUrl ? (
-        <img
-          src={imageUrl}
-          alt={cape.alias || "Cape"}
-          className="w-10 h-14 object-contain"
-          style={{ imageRendering: "pixelated" }}
-        />
-      ) : (
-        <div className="w-10 h-14 bg-muted rounded flex items-center justify-center text-muted-foreground">
-          ?
-        </div>
-      )}
-      <span className="text-xs mt-2 truncate max-w-full">
-        {cape.alias || "Cape"}
-      </span>
-      {cape.is_active && (
-        <Badge variant="default" className="mt-1 text-[10px] px-1.5 py-0">
-          Active
-        </Badge>
-      )}
-    </button>
+      </div>
+    </div>
   );
 }

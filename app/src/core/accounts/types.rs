@@ -111,6 +111,10 @@ pub struct CapeInfo {
     /// Texture URL
     pub url: String,
     
+    /// Cape alias/name (e.g., "Migrator", "Vanilla")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alias: Option<String>,
+    
     /// Cached texture data (base64 encoded)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cached_data: Option<String>,

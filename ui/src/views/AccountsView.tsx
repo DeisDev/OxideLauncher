@@ -37,7 +37,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { SkinManagementDialog } from "@/components/dialogs";
+import { openDialogWindow, WINDOW_LABELS } from "@/lib/windowManager";
 import { AccountInfo, DeviceCodeInfo, AuthProgressEventType } from "@/types";
 
 export function AccountsView() {
@@ -46,15 +46,13 @@ export function AccountsView() {
   const [showMsaDialog, setShowMsaDialog] = useState(false);
   const [newUsername, setNewUsername] = useState("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [refreshDialogOpen, setRefreshDialogOpen] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState<string | null>(null);
+  const [selectedAccountForRefresh, setSelectedAccountForRefresh] = useState<AccountInfo | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshingAccount, setRefreshingAccount] = useState<string | null>(null);
   const [isMsaConfigured, setIsMsaConfigured] = useState(false);
-
-  // Skin management state
-  const [skinDialogOpen, setSkinDialogOpen] = useState(false);
-  const [skinDialogAccount, setSkinDialogAccount] = useState<AccountInfo | null>(null);
 
   // Microsoft login state
   const [deviceCode, setDeviceCode] = useState<DeviceCodeInfo | null>(null);
@@ -85,8 +83,14 @@ export function AccountsView() {
       }
     });
 
+    // Listen for account updates from skin management window
+    const unlistenAccountUpdated = listen("account-updated", () => {
+      loadAccounts();
+    });
+
     return () => {
       unlisten.then((fn) => fn());
+      unlistenAccountUpdated.then((fn) => fn());
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
       }
@@ -247,17 +251,26 @@ export function AccountsView() {
     }
   };
 
-  const refreshAccount = async (accountId: string) => {
-    setRefreshingAccount(accountId);
+  const openRefreshDialog = (account: AccountInfo) => {
+    setSelectedAccountForRefresh(account);
+    setRefreshDialogOpen(true);
+  };
+
+  const handleRefreshAccount = async () => {
+    if (!selectedAccountForRefresh) return;
+    
+    setRefreshDialogOpen(false);
+    setRefreshingAccount(selectedAccountForRefresh.id);
     setError(null);
 
     try {
-      await invoke("refresh_account", { accountId });
+      await invoke("refresh_account", { accountId: selectedAccountForRefresh.id });
       loadAccounts();
     } catch (error) {
       setError(String(error));
     } finally {
       setRefreshingAccount(null);
+      setSelectedAccountForRefresh(null);
     }
   };
 
@@ -288,9 +301,13 @@ export function AccountsView() {
     setDeleteDialogOpen(true);
   };
 
-  const openSkinDialog = (account: AccountInfo) => {
-    setSkinDialogAccount(account);
-    setSkinDialogOpen(true);
+  const openSkinDialog = async (account: AccountInfo) => {
+    await openDialogWindow(WINDOW_LABELS.SKIN_MANAGEMENT, {
+      accountId: account.id,
+      username: account.username,
+      uuid: account.uuid,
+      accountType: account.account_type,
+    });
   };
 
   const getSkinAvatar = (account: AccountInfo) => {
@@ -548,7 +565,7 @@ export function AccountsView() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => refreshAccount(account.id)}
+                        onClick={() => openRefreshDialog(account)}
                         disabled={refreshingAccount === account.id}
                         title="Refresh account tokens"
                       >
@@ -605,15 +622,25 @@ export function AccountsView() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Skin Management Dialog */}
-      {skinDialogAccount && (
-        <SkinManagementDialog
-          open={skinDialogOpen}
-          onOpenChange={setSkinDialogOpen}
-          account={skinDialogAccount}
-          onAccountUpdated={loadAccounts}
-        />
-      )}
+      {/* Refresh Token Confirmation */}
+      <AlertDialog open={refreshDialogOpen} onOpenChange={setRefreshDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Refresh Account Tokens?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will re-authenticate with Microsoft servers to refresh the access tokens for{" "}
+              <span className="font-semibold">{selectedAccountForRefresh?.username}</span>.
+              This is needed if your tokens have expired.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleRefreshAccount}>
+              Refresh Tokens
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
