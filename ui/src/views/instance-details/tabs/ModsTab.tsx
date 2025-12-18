@@ -649,10 +649,10 @@ export function ModsTab({ instanceId, instance }: ModsTabProps) {
                             <img
                               src={mod.icon_url}
                               alt=""
-                              className="w-8 h-8 rounded object-contain shrink-0"
+                              className="w-8 h-8 min-w-8 min-h-8 rounded object-contain shrink-0"
                             />
                           ) : (
-                            <div className="w-8 h-8 rounded bg-muted flex items-center justify-center shrink-0">
+                            <div className="w-8 h-8 min-w-8 min-h-8 rounded bg-muted flex items-center justify-center shrink-0">
                               <Package className="h-4 w-4 text-muted-foreground" />
                             </div>
                           )}

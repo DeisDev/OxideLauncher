@@ -63,7 +63,8 @@ pub struct DeviceCodeInfoResponse {
 #[derive(Debug, Clone)]
 enum DeviceCodeState {
     /// Waiting for user to complete authentication in browser
-    Pending(DeviceCodeInfo),
+    /// (device_code_info, client_id)
+    Pending(DeviceCodeInfo, String),
     /// User authenticated, now completing the full auth flow
     Completing,
 }
@@ -141,23 +142,34 @@ pub async fn add_offline_account(
 /// Start Microsoft account login (device code flow)
 #[tauri::command]
 pub async fn start_microsoft_login(
+    state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<DeviceCodeInfoResponse, String> {
+    // Get client ID from config override or use default
+    let client_id = {
+        let config = state.config.lock().unwrap();
+        config
+            .api_keys
+            .msa_client_id
+            .clone()
+            .unwrap_or_else(|| MSA_CLIENT_ID.to_string())
+    };
+
     // Check if client ID is configured
-    if MSA_CLIENT_ID == "YOUR_AZURE_CLIENT_ID_HERE" {
-        return Err("Microsoft Client ID not configured. Please add your Azure Client ID in the code.".to_string());
+    if client_id == "YOUR_AZURE_CLIENT_ID_HERE" || client_id.is_empty() {
+        return Err("Microsoft Client ID not configured. Please add your Azure Client ID in Settings > Advanced.".to_string());
     }
 
     // Start device code flow
-    let device_code = start_device_code_flow(MSA_CLIENT_ID)
+    let device_code = start_device_code_flow(&client_id)
         .await
         .map_err(|e| e.to_string())?;
 
-    // Store for polling
+    // Store for polling (include client_id)
     let code_key = device_code.device_code.clone();
     {
         let mut pending = PENDING_DEVICE_CODES.lock().unwrap();
-        pending.insert(code_key.clone(), DeviceCodeState::Pending(device_code.clone()));
+        pending.insert(code_key.clone(), DeviceCodeState::Pending(device_code.clone(), client_id));
         tracing::info!("Stored device code - key: {} (len: {}), total pending: {}", 
             &code_key[..8.min(code_key.len())], 
             code_key.len(),
@@ -222,8 +234,8 @@ pub async fn poll_microsoft_login(
         device_code_state.ok_or("Device code not found. Please start login again.")?;
 
     // Check if we're already completing authentication
-    let device_code_info = match device_code_state {
-        DeviceCodeState::Pending(info) => info,
+    let (device_code_info, client_id) = match device_code_state {
+        DeviceCodeState::Pending(info, client_id) => (info, client_id),
         DeviceCodeState::Completing => {
             // Authentication is already in progress, just wait
             tracing::debug!("Device code {} is already completing authentication", &device_code[..8.min(device_code.len())]);
@@ -238,8 +250,8 @@ pub async fn poll_microsoft_login(
         }
     };
 
-    // Poll for result
-    let result = poll_device_code(MSA_CLIENT_ID, &device_code_info)
+    // Poll for result using the stored client_id
+    let result = poll_device_code(&client_id, &device_code_info)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -542,7 +554,16 @@ pub async fn get_account_for_launch(
 
 /// Check if a Microsoft Client ID is configured
 #[tauri::command]
-pub async fn is_microsoft_configured() -> Result<bool, String> {
+pub async fn is_microsoft_configured(state: State<'_, AppState>) -> Result<bool, String> {
+    // Check config override first
+    let config = state.config.lock().unwrap();
+    if let Some(client_id) = &config.api_keys.msa_client_id {
+        if !client_id.is_empty() && client_id != "YOUR_AZURE_CLIENT_ID_HERE" {
+            return Ok(true);
+        }
+    }
+    
+    // Fall back to hardcoded ID
     Ok(MSA_CLIENT_ID != "YOUR_AZURE_CLIENT_ID_HERE")
 }
 
