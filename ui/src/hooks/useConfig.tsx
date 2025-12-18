@@ -54,6 +54,7 @@ export interface UiConfig {
   window_height: number;
   last_instance: string | null;
   rust_mode: boolean;
+  open_instance_after_install: boolean;
 }
 
 export interface MinecraftConfig {

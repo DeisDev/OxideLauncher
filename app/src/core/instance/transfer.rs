@@ -463,6 +463,7 @@ pub struct FTBInstanceJson {
 }
 
 /// FTB App version.json format (for legacy instances)
+#[allow(dead_code)] // Placeholder for future FTB App import support
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FTBVersionJson {
     /// Targets (minecraft, forge, etc)
@@ -470,6 +471,7 @@ pub struct FTBVersionJson {
 }
 
 /// A target in FTB version.json
+#[allow(dead_code)] // Placeholder for future FTB App import support
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FTBTarget {
     /// Target name (minecraft, forge, fabric, etc)
@@ -531,12 +533,15 @@ pub struct FileToDownload {
     pub urls: Vec<String>,
     
     /// Expected file size
+    #[allow(dead_code)] // Reserved for download progress estimation
     pub size: u64,
     
     /// Expected hash (SHA1)
+    #[allow(dead_code)] // Reserved for hash verification
     pub hash_sha1: Option<String>,
     
     /// Expected hash (SHA512)
+    #[allow(dead_code)] // Reserved for hash verification
     pub hash_sha512: Option<String>,
     
     /// Platform info for API lookups
@@ -568,7 +573,8 @@ pub enum ImportType {
     Prism,
     /// Technic modpack
     Technic,
-    /// ATLauncher modpack
+    /// ATLauncher modpack (placeholder for future support)
+    #[allow(dead_code)]
     ATLauncher,
     /// FTB App instance
     FTBApp,

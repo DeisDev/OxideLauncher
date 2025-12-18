@@ -56,19 +56,18 @@ import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { DialogWindowHeader } from "@/components/common/DialogWindowHeader";
 
-// Modrinth logo SVG
-const ModrinthLogo = () => (
-  <svg viewBox="0 0 512 514" className="h-4 w-4" fill="currentColor">
-    <path d="M503.16 323.56C514.55 281.47 515.32 235.91 503.2 190.76C466.57 54.2299 326.04 -26.8001 189.33 9.77991C83.8101 38.0199 11.3899 128.07 0.689941 230.47H43.99C54.29 147.33 113.74 74.7298 199.75 51.7098C306.05 23.2598 415.13 80.6699 453.17 181.38L411.03 192.65C391.64 145.8 352.57 111.45 306.3 96.8198L298.56 140.66C335.09 154.13 364.72 184.5 375.56 224.91C391.36 283.8 361.94 344.14 308.56 369.17L320.09 412.16C390.25 383.21 432.4 310.3 422.43 235.14L464.41 223.91C468.91 252.62 467.35 281.16 460.55 308.07L503.16 323.56Z" />
-    <path d="M321.99 504.22C185.27 540.8 44.7501 459.77 8.11011 323.24C3.84011 307.31 1.17 291.33 0 275.46H43.27C44.36 287.37 46.4699 299.35 49.6799 311.29C53.0399 323.8 57.45 335.75 62.79 347.07L101.38 323.92C98.1299 316.42 95.39 308.6 93.21 300.47C69.17 210.87 122.41 118.77 212.13 94.7601C229.13 90.2101 246.23 88.4401 262.93 89.1501L255.19 133C244.73 133.05 234.11 134.42 223.53 137.25C157.31 154.98 118.01 222.95 135.75 289.09C136.85 293.16 138.13 297.13 139.59 300.99L188.94 271.38L174.07 231.95L220.67 184.36L279.57 171.03L296.62 192.15L281.1 252.07L244.63 293.78H197.98L148.63 323.39C163.78 359.57 195.84 386.54 235.83 397.46C301.98 415.17 371.23 376.27 388.98 310.12C391.96 299.12 393.27 287.99 393.04 277L436.53 265.76C436.85 285.09 434.79 304.58 430.06 323.9C413.36 387.89 368.96 438.74 311.42 465.53L323.05 508.51C328.05 506.71 332.98 504.72 337.84 502.55L337.84 502.55C345.84 499.04 353.63 495.1 361.18 490.75L375.08 532.93C364.48 539.15 353.38 544.63 341.82 549.33L332.79 545.46L321.99 504.22Z" />
-  </svg>
+// Import custom platform logos
+import modrinthLogo from "../../../art/modrinth.svg";
+import curseforgeLogo from "../../../art/flame.svg";
+
+// Modrinth logo component
+const ModrinthLogo = ({ className = "h-4 w-4" }: { className?: string }) => (
+  <img src={modrinthLogo} alt="Modrinth" className={className} />
 );
 
-// CurseForge logo SVG
-const CurseForgeLogo = () => (
-  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-    <path d="M18.326 9.2177L15.892 9.21765C17.254 10.3397 18.147 11.9859 18.326 13.8296H23.9999L18.326 9.2177ZM13.268 19.2319L13.263 19.218C12.762 18.9558 12.312 18.5997 11.94 18.1696C11.287 17.4135 10.841 16.4694 10.701 15.4313H10.7L10.6949 15.3992C10.6479 15.0633 10.6239 14.7233 10.6239 14.3812C10.6239 12.4734 11.4629 10.7632 12.7779 9.59917L12.778 9.59922C13.166 9.24919 13.604 8.95017 14.079 8.71515H8.16187V16.4754L10.7 19.0135V24H4.02899C2.27397 22.2469 1.15194 19.8888 0.979932 17.2686C0.89593 16.0206 1.03793 14.7655 1.40394 13.5835H1.40399C2.52602 9.92232 5.53608 7.09023 9.32816 6.20922L6.19909 3.08115V0H17.2461L21.073 3.82709H18.326L14.501 0.00109863L14.4999 5.58617C19.662 6.29619 23.606 10.3072 23.9999 15.431H18.326C18.036 13.5695 17.0349 11.9434 15.609 10.8653L14.8949 10.3023L14.893 10.3033C13.965 9.61425 12.8129 9.2063 11.569 9.2063C10.961 9.2063 10.374 9.3023 9.82297 9.47931H9.82302C7.54196 10.1923 5.85392 12.1413 5.47592 14.5233C5.41292 14.8873 5.37891 15.2613 5.37891 15.6443C5.37891 16.2494 5.46391 16.8344 5.62092 17.3874L5.62297 17.3944C5.65097 17.4954 5.68397 17.5964 5.71897 17.6974L5.71803 17.6964L6.15897 18.9925L6.16095 18.9965L6.52698 19.9596L6.85299 20.5677L7.30698 21.3037L7.77198 22.1988H13.268V19.2319Z" />
-  </svg>
+// CurseForge logo component
+const CurseForgeLogo = ({ className = "h-4 w-4" }: { className?: string }) => (
+  <img src={curseforgeLogo} alt="CurseForge" className={className} />
 );
 
 interface ModSearchResult {
@@ -150,7 +149,15 @@ interface ModSearchResponse {
 
 type SortOption = "relevance" | "downloads" | "follows" | "newest" | "updated";
 
-const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const;
+// Page size options - CurseForge API max is 50, Modrinth allows 100
+const PAGE_SIZE_OPTIONS_MODRINTH = [10, 25, 50, 100] as const;
+const PAGE_SIZE_OPTIONS_CURSEFORGE = [10, 25, 50] as const;
+
+const getPageSizeOptions = (platform: "modrinth" | "curseforge") =>
+  platform === "curseforge" ? PAGE_SIZE_OPTIONS_CURSEFORGE : PAGE_SIZE_OPTIONS_MODRINTH;
+
+const getMaxPageSize = (platform: "modrinth" | "curseforge") =>
+  platform === "curseforge" ? 50 : 100;
 
 export function ModBrowserPage() {
   const [searchParams] = useSearchParams();
@@ -375,6 +382,11 @@ export function ModBrowserPage() {
       setSelectedMod(null);
       setSelectedCategories([]);
       setCurrentPage(1);
+      // Adjust page size if it exceeds the new platform's max
+      const maxSize = getMaxPageSize(newPlatform);
+      if (pageSize > maxSize) {
+        setPageSize(maxSize);
+      }
     }
   };
 
@@ -842,10 +854,10 @@ export function ModBrowserPage() {
                         <img
                           src={mod.icon_url}
                           alt={mod.name}
-                          className="w-12 h-12 rounded-lg object-cover"
+                          className="w-12 h-12 rounded-lg object-cover shrink-0"
                         />
                       ) : (
-                        <div className="w-12 h-12 rounded-lg bg-muted flex items-center justify-center">
+                        <div className="w-12 h-12 rounded-lg bg-muted flex items-center justify-center shrink-0">
                           <Package className="h-6 w-6 text-muted-foreground" />
                         </div>
                       )}
@@ -933,7 +945,7 @@ export function ModBrowserPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {PAGE_SIZE_OPTIONS.map((size) => (
+                    {getPageSizeOptions(platform).map((size) => (
                       <SelectItem key={size} value={size.toString()}>
                         {size}
                       </SelectItem>

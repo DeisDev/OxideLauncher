@@ -104,6 +104,7 @@ pub struct ModloaderLibrary {
 
 impl ModloaderLibrary {
     /// Create a new library from a Maven coordinate
+    #[allow(dead_code)] // Utility for future modloader debugging/testing
     pub fn from_maven(name: &str) -> Self {
         let path = maven_to_path(name);
         Self {
@@ -118,6 +119,7 @@ impl ModloaderLibrary {
     }
 
     /// Create with a custom URL
+    #[allow(dead_code)] // Utility for future modloader debugging/testing
     pub fn with_url(mut self, url: &str) -> Self {
         self.url = Some(url.to_string());
         self
@@ -129,6 +131,7 @@ impl ModloaderLibrary {
     }
 
     /// Get the download URL for this library
+    #[allow(dead_code)] // Utility for future URL resolution debugging
     pub fn get_url(&self, base_url: &str) -> String {
         if let Some(url) = &self.url {
             url.clone()
@@ -251,6 +254,7 @@ pub fn maven_to_path(coordinate: &str) -> String {
 }
 
 /// Convert a file path back to a Maven coordinate (approximate)
+#[allow(dead_code)] // Utility for future modloader debugging
 pub fn path_to_maven(path: &str) -> Option<String> {
     let parts: Vec<&str> = path.split('/').collect();
     if parts.len() < 4 {

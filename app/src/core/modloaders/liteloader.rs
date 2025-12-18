@@ -42,8 +42,10 @@ struct LiteLoaderArtefacts {
 
 #[derive(Debug, Deserialize)]
 struct LiteLoaderArtefact {
-    tweakClass: Option<String>,
+    #[serde(rename = "tweakClass")]
+    tweak_class: Option<String>,
     libraries: Option<Vec<LiteLoaderLibraryInfo>>,
+    #[allow(dead_code)] // Placeholder for future Technic import support
     file: Option<String>,
 }
 
@@ -165,7 +167,7 @@ impl ModloaderInstaller for LiteLoaderInstaller {
                             });
                         }
                     }
-                    if let Some(tweak_class) = &artefact.tweakClass {
+                    if let Some(tweak_class) = &artefact.tweak_class {
                         profile.tweakers.clear();
                         profile.tweakers.push(tweak_class.clone());
                     }
@@ -239,6 +241,7 @@ pub async fn get_liteloader_versions(minecraft_version: &str) -> Result<Vec<Lite
 }
 
 /// Get the latest LiteLoader version for a Minecraft version
+#[allow(dead_code)] // Utility function for future auto-select feature
 pub async fn get_recommended_liteloader(minecraft_version: &str) -> Result<Option<String>> {
     let versions = get_liteloader_versions(minecraft_version).await?;
     Ok(versions.into_iter().next().map(|v| v.version))

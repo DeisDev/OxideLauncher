@@ -12,9 +12,6 @@ pub mod search;
 pub mod download;
 pub mod listing;
 
-// Re-export types for external use
-pub use types::*;
-
 // Re-export all commands - using wildcard to include __cmd__ symbols for tauri
 pub use search::*;
 pub use download::*;

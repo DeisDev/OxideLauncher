@@ -91,3 +91,66 @@ pub async fn open_external_url(url: String) -> Result<(), String> {
     open::that(url).map_err(|e| e.to_string())?;
     Ok(())
 }
+
+// Window state commands for position memory feature
+
+use crate::core::config::WindowState;
+
+#[tauri::command]
+pub async fn get_window_state(
+    state: State<'_, AppState>,
+    window_type: String,
+) -> Result<Option<WindowState>, String> {
+    let config = state.config.lock().unwrap();
+    
+    if window_type == "main" {
+        if config.ui.remember_main_window_position {
+            Ok(Some(config.ui.main_window_state.clone()))
+        } else {
+            Ok(None)
+        }
+    } else {
+        if config.ui.remember_dialog_window_positions {
+            Ok(config.ui.dialog_window_states.get(&window_type).cloned())
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn save_window_state(
+    state: State<'_, AppState>,
+    window_type: String,
+    window_state: WindowState,
+) -> Result<(), String> {
+    let mut config = state.config.lock().unwrap();
+    
+    if window_type == "main" {
+        if config.ui.remember_main_window_position {
+            config.ui.main_window_state = window_state;
+            config.save().map_err(|e| e.to_string())?;
+        }
+    } else {
+        if config.ui.remember_dialog_window_positions {
+            config.ui.dialog_window_states.insert(window_type, window_state);
+            config.save().map_err(|e| e.to_string())?;
+        }
+    }
+    
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn is_window_position_memory_enabled(
+    state: State<'_, AppState>,
+    window_type: String,
+) -> Result<bool, String> {
+    let config = state.config.lock().unwrap();
+    
+    if window_type == "main" {
+        Ok(config.ui.remember_main_window_position)
+    } else {
+        Ok(config.ui.remember_dialog_window_positions)
+    }
+}

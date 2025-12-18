@@ -1,10 +1,9 @@
 //! Launch game step - actually launches the Minecraft process
 
 use async_trait::async_trait;
-use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use crate::core::launch::{LaunchContext, LaunchStep, LaunchStepResult};
 use crate::core::minecraft::version::{fetch_version_manifest, fetch_version_data, ArgumentValue, ArgumentValueInner, evaluate_rules_with_features, VersionData};

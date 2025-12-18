@@ -7,3 +7,4 @@ export { SkinManagementDialog } from './SkinManagementDialog';
 export { ExportInstanceDialog } from './ExportInstanceDialog';
 export { ImportInstanceDialog } from './ImportInstanceDialog';
 export { BlockedModsDialog } from './BlockedModsDialog';
+export { ModUpdatesDialog } from './ModUpdatesDialog';

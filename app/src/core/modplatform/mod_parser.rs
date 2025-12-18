@@ -149,10 +149,15 @@ fn try_parse_forge_toml<R: Read + std::io::Seek>(archive: &mut ZipArchive<R>) ->
     let first_mod = mods.first()?;
     
     let mod_id = first_mod.get("modId")?.as_str()?.to_string();
-    let version = first_mod.get("version")
+    let raw_version = first_mod.get("version")
         .and_then(|v| v.as_str())
-        .unwrap_or("unknown")
-        .to_string();
+        .unwrap_or("unknown");
+    // Filter out unresolved Gradle placeholders like ${file.jarVersion}
+    let version = if raw_version.contains("${") {
+        "unknown".to_string()
+    } else {
+        raw_version.to_string()
+    };
     let name = first_mod.get("displayName")
         .and_then(|v| v.as_str())
         .unwrap_or(&mod_id)
@@ -227,10 +232,15 @@ fn try_parse_mcmod_info<R: Read + std::io::Seek>(archive: &mut ZipArchive<R>) ->
         .and_then(|v| v.as_str())
         .unwrap_or(&mod_id)
         .to_string();
-    let version = mod_info.get("version")
+    let raw_version = mod_info.get("version")
         .and_then(|v| v.as_str())
-        .unwrap_or("unknown")
-        .to_string();
+        .unwrap_or("unknown");
+    // Filter out unresolved Gradle placeholders
+    let version = if raw_version.contains("${") {
+        "unknown".to_string()
+    } else {
+        raw_version.to_string()
+    };
     let description = mod_info.get("description")
         .and_then(|v| v.as_str())
         .unwrap_or("")

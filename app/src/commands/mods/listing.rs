@@ -1,6 +1,7 @@
 //! Mod listing and management commands
 
 use crate::commands::state::AppState;
+use crate::core::rustwiz::{self, parser::read_mod_toml};
 use super::types::*;
 use tauri::State;
 
@@ -64,7 +65,18 @@ pub async fn get_installed_mods(
                 datetime.format("%Y-%m-%d %H:%M").to_string()
             });
             
-            // Try to load metadata from .metadata.json file
+            // Try to load metadata from RustWiz .pw.toml file first (in .index folder)
+            let toml_filename = rustwiz::mod_toml_filename(&base_filename);
+            let index_dir = rustwiz::index_dir(&mods_dir);
+            let toml_path = index_dir.join(&toml_filename);
+            
+            let pw_toml_metadata = if toml_path.exists() {
+                read_mod_toml(&toml_path).ok()
+            } else {
+                None
+            };
+            
+            // Try to load metadata from .metadata.json file (legacy)
             let metadata_path = mods_dir.join(format!("{}.metadata.json", base_filename));
             let metadata: Option<ModMetadata> = if metadata_path.exists() {
                 std::fs::read_to_string(&metadata_path)
@@ -74,7 +86,28 @@ pub async fn get_installed_mods(
                 None
             };
             
-            let (name, version, provider, icon_url, homepage, issues_url, source_url) = if let Some(meta) = metadata {
+            // Priority: pw.toml > .metadata.json > JAR parsing
+            let (name, version, provider, icon_url, homepage, issues_url, source_url) = if let Some(ref pw_meta) = pw_toml_metadata {
+                // Extract provider from update section
+                let provider = if pw_meta.packwiz.update.as_ref().and_then(|u| u.modrinth.as_ref()).is_some() {
+                    Some("modrinth".to_string())
+                } else if pw_meta.packwiz.update.as_ref().and_then(|u| u.curseforge.as_ref()).is_some() {
+                    Some("curseforge".to_string())
+                } else {
+                    None
+                };
+                
+                // Get icon_url from oxide metadata
+                let icon_url = pw_meta.oxide.as_ref().and_then(|o| o.icon_url.clone());
+                
+                // Get name and version from pw.toml
+                let name = pw_meta.packwiz.name.clone();
+                let version = pw_meta.oxide.as_ref()
+                    .and_then(|o| o.mc_versions.first().cloned())
+                    .or_else(|| Some("".to_string()));
+                
+                (name, version, provider, icon_url, None, None, None)
+            } else if let Some(meta) = metadata {
                 (meta.name, Some(meta.version), Some(meta.provider), meta.icon_url, None, None, None)
             } else {
                 // Try to parse mod metadata from JAR file
@@ -130,7 +163,9 @@ pub async fn get_installed_mods(
                         tracing::info!("No URLs found in mod '{}'", base_filename);
                     }
                     
-                    (name, version, jar_details.loader_type, icon_url, jar_details.homepage, jar_details.issues_url, jar_details.source_url)
+                    // Provider is None when parsed from JAR - we don't know if it came from Modrinth/CurseForge
+                    // loader_type (Fabric/Forge/etc.) is different from provider (Modrinth/CurseForge)
+                    (name, version, None, icon_url, jar_details.homepage, jar_details.issues_url, jar_details.source_url)
                 } else {
                     tracing::info!("Could not parse mod metadata from JAR: {}", base_filename);
                     let name = base_filename.trim_end_matches(".jar").to_string();

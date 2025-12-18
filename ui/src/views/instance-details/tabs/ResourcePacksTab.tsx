@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { listen } from "@tauri-apps/api/event";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { Trash2, RefreshCw, Package, FolderOpen, Download, Plus, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -25,6 +26,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { openDialogWindow, WINDOW_LABELS } from "@/lib/windowManager";
 import type { ResourcePackInfo, InstanceInfo } from "../types";
@@ -301,9 +308,37 @@ export function ResourcePacksTab({ instanceId, instance }: ResourcePacksTabProps
                 {resourcePacks.map((pack) => (
                   <TableRow key={pack.filename}>
                     <TableCell className="font-medium">
-                      <div className="flex items-center gap-2">
-                        <Package className="h-4 w-4 text-muted-foreground" />
-                        <span>{pack.name}</span>
+                      <div className="flex items-center gap-3">
+                        {pack.icon_path ? (
+                          <img
+                            src={convertFileSrc(pack.icon_path)}
+                            alt=""
+                            className="h-8 w-8 rounded object-cover flex-shrink-0"
+                            onError={(e) => {
+                              // Replace with fallback icon on error
+                              (e.target as HTMLImageElement).style.display = 'none';
+                              (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
+                            }}
+                          />
+                        ) : null}
+                        <Package className={cn("h-8 w-8 text-muted-foreground flex-shrink-0", pack.icon_path && "hidden")} />
+                        <div className="min-w-0">
+                          <div className="truncate">{pack.name}</div>
+                          {pack.description && (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className="text-xs text-muted-foreground truncate max-w-[300px]">
+                                    {pack.description}
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent side="bottom" className="max-w-[400px]">
+                                  <p>{pack.description}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          )}
+                        </div>
                       </div>
                     </TableCell>
                     <TableCell>{pack.size}</TableCell>

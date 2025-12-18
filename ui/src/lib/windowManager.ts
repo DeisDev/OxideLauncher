@@ -1,5 +1,15 @@
 import { WebviewWindow, getAllWebviewWindows, getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { emit, listen, UnlistenFn } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
+
+// Window state type matching Rust backend
+export interface WindowState {
+  x: number | null;
+  y: number | null;
+  width: number | null;
+  height: number | null;
+  maximized: boolean;
+}
 
 // Window labels for our dialog windows
 export const WINDOW_LABELS = {
@@ -162,6 +172,11 @@ export async function openDialogWindow(
   // Use index.html with hash for proper routing in production builds
   const url = `index.html#${route}`;
 
+  // Check for saved window state
+  const savedState = await getWindowState(label);
+  const usePosition = savedState && savedState.x !== null && savedState.y !== null;
+  const useSize = savedState && savedState.width !== null && savedState.height !== null;
+
   try {
     // Check if window already exists (e.g., from a previous session)
     const existingWindows = await getAllWebviewWindows();
@@ -174,16 +189,18 @@ export async function openDialogWindow(
       return existing;
     }
 
-    // Create new window
+    // Create new window with saved or default dimensions
     const webview = new WebviewWindow(label, {
       url,
       title: config.title,
-      width: config.width,
-      height: config.height,
+      width: useSize ? savedState!.width! : config.width,
+      height: useSize ? savedState!.height! : config.height,
       minWidth: config.minWidth,
       minHeight: config.minHeight,
       resizable: true,
-      center: true,
+      center: !usePosition, // Only center if we don't have a saved position
+      x: usePosition ? savedState!.x! : undefined,
+      y: usePosition ? savedState!.y! : undefined,
       decorations: false, // Disable native title bar
       transparent: false,
       parent: "main", // Set parent to main window for modal-like behavior
@@ -206,9 +223,12 @@ export async function openDialogWindow(
     // Emit event so main window can show overlay
     await emitDialogOpened(label);
 
-    // Listen for window close to clean up state
+    // Listen for window close to clean up state and save position
     webview.onCloseRequested(async () => {
       if (currentDialogLabel === label) {
+        // Save position before closing
+        await saveDialogWindowPosition(label, webview);
+        
         currentDialogWindow = null;
         currentDialogLabel = null;
         // Emit event so main window can hide overlay
@@ -348,4 +368,160 @@ export async function setupDialogEventListeners(
     unlistenOpen();
     unlistenClose();
   };
+}
+
+// Window position memory functions
+
+/**
+ * Get saved window state from backend
+ */
+export async function getWindowState(windowType: string): Promise<WindowState | null> {
+  try {
+    return await invoke<WindowState | null>("get_window_state", { windowType });
+  } catch (error) {
+    console.error("Failed to get window state:", error);
+    return null;
+  }
+}
+
+/**
+ * Save window state to backend
+ */
+export async function saveWindowState(windowType: string, state: WindowState): Promise<void> {
+  try {
+    await invoke("save_window_state", { windowType, windowState: state });
+  } catch (error) {
+    console.error("Failed to save window state:", error);
+  }
+}
+
+/**
+ * Check if window position memory is enabled for a window type
+ */
+export async function isWindowPositionMemoryEnabled(windowType: string): Promise<boolean> {
+  try {
+    return await invoke<boolean>("is_window_position_memory_enabled", { windowType });
+  } catch (error) {
+    console.error("Failed to check window position memory:", error);
+    return false;
+  }
+}
+
+/**
+ * Get current window position and size
+ */
+export async function getCurrentWindowState(window: WebviewWindow): Promise<WindowState> {
+  try {
+    const position = await window.outerPosition();
+    const size = await window.outerSize();
+    const maximized = await window.isMaximized();
+    
+    return {
+      x: position.x,
+      y: position.y,
+      width: size.width,
+      height: size.height,
+      maximized,
+    };
+  } catch (error) {
+    console.error("Failed to get current window state:", error);
+    return {
+      x: null,
+      y: null,
+      width: null,
+      height: null,
+      maximized: false,
+    };
+  }
+}
+
+/**
+ * Apply saved window state to a window
+ */
+export async function applyWindowState(window: WebviewWindow, state: WindowState): Promise<void> {
+  try {
+    // Only apply if we have valid position data
+    if (state.x !== null && state.y !== null) {
+      await window.setPosition({ type: "Physical", x: state.x, y: state.y });
+    }
+    
+    if (state.width !== null && state.height !== null) {
+      await window.setSize({ type: "Physical", width: state.width, height: state.height });
+    }
+    
+    if (state.maximized) {
+      await window.maximize();
+    }
+  } catch (error) {
+    console.error("Failed to apply window state:", error);
+  }
+}
+
+/**
+ * Save and restore main window position
+ * Call this once on app startup in the main window
+ */
+export async function setupMainWindowPositionMemory(): Promise<() => void> {
+  // Only setup on main window
+  if (isDialogWindowContext()) return () => {};
+  
+  const mainWindow = getCurrentWebviewWindow();
+  
+  // Try to restore saved position
+  const savedState = await getWindowState("main");
+  if (savedState && (savedState.x !== null || savedState.width !== null)) {
+    await applyWindowState(mainWindow, savedState);
+  }
+  
+  // Save position when window is moved or resized (debounced)
+  let saveTimeout: number | null = null;
+  
+  const savePosition = async () => {
+    const isEnabled = await isWindowPositionMemoryEnabled("main");
+    if (!isEnabled) return;
+    
+    const state = await getCurrentWindowState(mainWindow);
+    await saveWindowState("main", state);
+  };
+  
+  const debouncedSave = () => {
+    if (saveTimeout) {
+      clearTimeout(saveTimeout);
+    }
+    saveTimeout = setTimeout(savePosition, 500) as unknown as number;
+  };
+  
+  // Listen for move and resize events
+  const unlistenMove = mainWindow.onMoved(debouncedSave);
+  const unlistenResize = mainWindow.onResized(debouncedSave);
+  
+  // Save final position when closing
+  const unlistenClose = mainWindow.onCloseRequested(async () => {
+    const isEnabled = await isWindowPositionMemoryEnabled("main");
+    if (isEnabled) {
+      const state = await getCurrentWindowState(mainWindow);
+      await saveWindowState("main", state);
+    }
+  });
+  
+  // Return cleanup function
+  return async () => {
+    if (saveTimeout) {
+      clearTimeout(saveTimeout);
+    }
+    (await unlistenMove)();
+    (await unlistenResize)();
+    (await unlistenClose)();
+  };
+}
+
+/**
+ * Save dialog window position when closing
+ */
+export async function saveDialogWindowPosition(label: DialogWindowLabel, window: WebviewWindow): Promise<void> {
+  const isEnabled = await isWindowPositionMemoryEnabled(label);
+  if (!isEnabled) return;
+  
+  const state = await getCurrentWindowState(window);
+  await saveWindowState(label, state);
 }

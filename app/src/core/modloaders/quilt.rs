@@ -56,6 +56,7 @@ struct QuiltLauncherMeta {
 struct QuiltLibraries {
     client: Vec<QuiltLibrary>,
     common: Vec<QuiltLibrary>,
+    #[allow(dead_code)] // Reserved for server-side installation
     server: Vec<QuiltLibrary>,
 }
 
@@ -71,7 +72,7 @@ struct QuiltLibrary {
 #[serde(untagged)]
 enum QuiltMainClass {
     Simple(String),
-    Complex { client: String, server: String },
+    Complex { client: String, #[allow(dead_code)] server: String },
 }
 
 impl QuiltMainClass {
@@ -259,7 +260,7 @@ impl ModloaderInstaller for QuiltInstaller {
         Ok(profile)
     }
 
-    fn is_installed(&self, minecraft_version: &str, loader_version: &str, libraries_dir: &PathBuf) -> bool {
+    fn is_installed(&self, _minecraft_version: &str, loader_version: &str, libraries_dir: &PathBuf) -> bool {
         // Check if the main Quilt loader library exists
         let loader_path = format!(
             "org/quiltmc/quilt-loader/{}/quilt-loader-{}.jar",
@@ -299,6 +300,7 @@ pub async fn get_quilt_versions(minecraft_version: &str) -> Result<Vec<QuiltVers
 }
 
 /// Get the latest Quilt version for a Minecraft version
+#[allow(dead_code)] // Utility function for future auto-select feature
 pub async fn get_recommended_quilt(minecraft_version: &str) -> Result<Option<String>> {
     let versions = get_quilt_versions(minecraft_version).await?;
     Ok(versions.into_iter().next().map(|v| v.version))

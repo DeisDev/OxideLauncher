@@ -39,12 +39,15 @@ struct FabricLoaderInfo {
 #[derive(Debug, Deserialize)]
 struct FabricIntermediaryInfo {
     maven: String,
+    #[allow(dead_code)] // Parsed from API but not currently used
     version: String,
+    #[allow(dead_code)] // Reserved for stability filtering
     stable: bool,
 }
 
 #[derive(Debug, Deserialize)]
 struct FabricLauncherMeta {
+    #[allow(dead_code)] // Parsed from API for future version validation
     version: i32,
     libraries: FabricLibraries,
     #[serde(rename = "mainClass")]
@@ -55,6 +58,7 @@ struct FabricLauncherMeta {
 struct FabricLibraries {
     client: Vec<FabricLibrary>,
     common: Vec<FabricLibrary>,
+    #[allow(dead_code)] // Reserved for server-side installation
     server: Vec<FabricLibrary>,
 }
 
@@ -70,7 +74,7 @@ struct FabricLibrary {
 #[serde(untagged)]
 enum FabricMainClass {
     Simple(String),
-    Complex { client: String, server: String },
+    Complex { client: String, #[allow(dead_code)] server: String },
 }
 
 impl FabricMainClass {
@@ -242,7 +246,7 @@ impl ModloaderInstaller for FabricInstaller {
         Ok(profile)
     }
 
-    fn is_installed(&self, minecraft_version: &str, loader_version: &str, libraries_dir: &PathBuf) -> bool {
+    fn is_installed(&self, _minecraft_version: &str, loader_version: &str, libraries_dir: &PathBuf) -> bool {
         // Check if the main Fabric loader library exists
         let loader_path = format!(
             "net/fabricmc/fabric-loader/{}/fabric-loader-{}.jar",
@@ -283,6 +287,7 @@ pub async fn get_fabric_versions(minecraft_version: &str) -> Result<Vec<FabricVe
 }
 
 /// Get the latest stable Fabric version for a Minecraft version
+#[allow(dead_code)] // Utility function for future auto-select feature
 pub async fn get_recommended_fabric(minecraft_version: &str) -> Result<Option<String>> {
     let versions = get_fabric_versions(minecraft_version).await?;
     Ok(versions.into_iter().find(|v| v.stable).map(|v| v.version))

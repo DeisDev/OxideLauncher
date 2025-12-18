@@ -130,6 +130,7 @@ pub struct ModSearchResponse {
 }
 
 /// Request for batch downloading mods
+#[allow(dead_code)] // Placeholder for future batch download queue feature
 #[derive(Debug, Clone, Deserialize)]
 pub struct ModDownloadRequest {
     pub mod_id: String,
@@ -138,6 +139,7 @@ pub struct ModDownloadRequest {
 }
 
 /// Progress update for batch downloads
+#[allow(dead_code)] // Placeholder for future download queue UI
 #[derive(Debug, Clone, Serialize)]
 pub struct ModDownloadProgress {
     pub downloaded: u32,

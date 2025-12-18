@@ -495,6 +495,7 @@ pub fn get_skins_folder(data_dir: &std::path::Path) -> std::path::PathBuf {
 }
 
 /// Cache a skin to the skins folder
+#[allow(dead_code)] // Reserved for future skin caching feature
 pub async fn cache_skin(data_dir: &std::path::Path, uuid: &str, image_data: &[u8]) -> Result<std::path::PathBuf> {
     let skins_folder = get_skins_folder(data_dir);
     tokio::fs::create_dir_all(&skins_folder).await?;

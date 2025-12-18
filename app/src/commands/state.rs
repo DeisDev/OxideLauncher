@@ -19,6 +19,7 @@ pub struct RunningProcess {
     /// Time when the game was launched
     pub launch_time: Instant,
     /// Exit code when process exits (None if still running or not checked yet)
+    #[allow(dead_code)] // Reserved for future crash reporting feature
     pub exit_code: Option<i32>,
 }
 

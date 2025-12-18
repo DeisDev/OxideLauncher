@@ -1,6 +1,7 @@
 //! Application configuration management
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use crate::core::error::Result;
 
@@ -278,6 +279,26 @@ pub enum ProxyType {
     Socks5,
 }
 
+/// Window position and size state
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct WindowState {
+    /// X position on screen
+    #[serde(default)]
+    pub x: Option<i32>,
+    /// Y position on screen
+    #[serde(default)]
+    pub y: Option<i32>,
+    /// Window width
+    #[serde(default)]
+    pub width: Option<u32>,
+    /// Window height
+    #[serde(default)]
+    pub height: Option<u32>,
+    /// Whether window was maximized
+    #[serde(default)]
+    pub maximized: bool,
+}
+
 /// UI configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UiConfig {
@@ -320,6 +341,26 @@ pub struct UiConfig {
     /// Rust mode - obnoxiously Rust-themed color scheme 🦀
     #[serde(default)]
     pub rust_mode: bool,
+
+    /// Remember main window position and size
+    #[serde(default)]
+    pub remember_main_window_position: bool,
+
+    /// Remember dialog window positions and sizes
+    #[serde(default)]
+    pub remember_dialog_window_positions: bool,
+
+    /// Stored main window state
+    #[serde(default)]
+    pub main_window_state: WindowState,
+
+    /// Stored dialog window states (keyed by dialog label)
+    #[serde(default)]
+    pub dialog_window_states: HashMap<String, WindowState>,
+
+    /// Open instance details view after installing a modpack
+    #[serde(default)]
+    pub open_instance_after_install: bool,
 }
 
 impl Default for UiConfig {
@@ -335,6 +376,11 @@ impl Default for UiConfig {
             window_height: default_window_height(),
             last_instance: None,
             rust_mode: false,
+            remember_main_window_position: false,
+            remember_dialog_window_positions: false,
+            main_window_state: WindowState::default(),
+            dialog_window_states: HashMap::new(),
+            open_instance_after_install: false,
         }
     }
 }

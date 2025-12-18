@@ -17,6 +17,7 @@ use super::profile::maven_to_path;
 #[derive(Debug, Clone)]
 pub struct ProcessorData {
     pub client: String,
+    #[allow(dead_code)] // Reserved for server-side installation
     pub server: String,
 }
 
@@ -32,6 +33,7 @@ pub struct Processor {
     /// Which side to run on (empty means both)
     pub sides: Vec<String>,
     /// Expected outputs (path -> sha1)
+    #[allow(dead_code)] // Reserved for output validation feature
     pub outputs: HashMap<String, String>,
 }
 
@@ -44,6 +46,7 @@ pub struct ProcessorContext {
     /// Minecraft version
     pub minecraft_version: String,
     /// Forge/NeoForge version
+    #[allow(dead_code)] // Reserved for version-specific processor handling
     pub loader_version: String,
     /// Data variables for substitution
     pub data: HashMap<String, ProcessorData>,
@@ -54,7 +57,7 @@ pub struct ProcessorContext {
 impl ProcessorContext {
     /// Substitute placeholders in an argument
     fn substitute_arg(&self, arg: &str) -> Result<String> {
-        let mut result = arg.to_string();
+        let result = arg.to_string();
         
         // Handle [artifact] references - these refer to library paths
         if result.starts_with('[') && result.ends_with(']') {

@@ -10,6 +10,8 @@ pub struct ResourcePackInfo {
     pub description: Option<String>,
     pub size: String,
     pub enabled: bool,
+    /// Path to the cached pack icon (extracted from pack.png inside the archive)
+    pub icon_path: Option<String>,
 }
 
 /// Shader pack information

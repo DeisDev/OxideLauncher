@@ -20,6 +20,60 @@ interface LogTabProps {
   setWrapLines: (wrap: boolean) => void;
 }
 
+/**
+ * Determines the log level/color class for a log line
+ * Matches common Minecraft/Java log patterns
+ */
+function getLogLineClass(line: string): string {
+  const lowerLine = line.toLowerCase();
+  
+  // Error patterns - red
+  if (
+    lowerLine.includes('/error]') ||
+    lowerLine.includes('[error]') ||
+    lowerLine.includes(' error:') ||
+    lowerLine.includes('exception') ||
+    lowerLine.includes('fatal') ||
+    lowerLine.includes('failed') ||
+    lowerLine.includes('crash') ||
+    /\berror\b/.test(lowerLine)
+  ) {
+    return 'text-red-400';
+  }
+  
+  // Warning patterns - amber/orange
+  if (
+    lowerLine.includes('/warn]') ||
+    lowerLine.includes('[warn]') ||
+    lowerLine.includes('[warning]') ||
+    lowerLine.includes(' warn:') ||
+    lowerLine.includes(' warning:') ||
+    /\bwarn(ing)?\b/.test(lowerLine)
+  ) {
+    return 'text-amber-400';
+  }
+  
+  // Info patterns - default (could make blue/cyan)
+  if (
+    lowerLine.includes('/info]') ||
+    lowerLine.includes('[info]')
+  ) {
+    return 'text-slate-300';
+  }
+  
+  // Debug patterns - dim gray
+  if (
+    lowerLine.includes('/debug]') ||
+    lowerLine.includes('[debug]') ||
+    lowerLine.includes('[trace]')
+  ) {
+    return 'text-slate-500';
+  }
+  
+  // Default color
+  return 'text-slate-300';
+}
+
 export function LogTab({
   instanceId,
   logContent,
@@ -121,7 +175,7 @@ export function LogTab({
       <ScrollArea className="flex-1 rounded-md border bg-black/50">
         <div className={cn("p-4 font-mono text-xs", wrapLines ? "whitespace-pre-wrap" : "whitespace-pre")}>
           {filteredLogs.map((line, index) => (
-            <div key={index} className="hover:bg-white/5">
+            <div key={index} className={cn("hover:bg-white/5", getLogLineClass(line))}>
               {line}
             </div>
           ))}

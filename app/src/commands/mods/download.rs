@@ -1,16 +1,112 @@
-//! Mod download commands
+//! Mod download commands with RustWiz metadata integration
 
 use crate::commands::state::AppState;
 use crate::core::download::download_file;
 use crate::core::modplatform::{
     curseforge::CurseForgeClient, 
-    modrinth::ModrinthClient, 
-    types::*,
+    modrinth::ModrinthClient,
 };
-use super::types::*;
+use crate::core::rustwiz::{
+    self, ModToml, ModTomlExtended, OxideMetadata,
+    HashFormat, Side,
+};
 use tauri::{State, Emitter, AppHandle};
 use std::sync::Arc;
+use std::path::Path;
 use tokio::sync::Semaphore;
+
+// =============================================================================
+// RustWiz Metadata Helper
+// =============================================================================
+
+/// Create RustWiz metadata (.pw.toml) for a downloaded mod
+/// 
+/// This creates packwiz-compatible metadata that enables:
+/// - Mod update checking via platform APIs
+/// - Modpack export to .mrpack or CurseForge formats
+/// 
+/// Metadata is stored in mods/.index/<slug>.pw.toml following Prism Launcher's approach.
+fn create_mod_metadata(
+    mods_dir: &Path,
+    filename: &str,
+    name: &str,
+    download_url: &str,
+    hash: &str,
+    hash_format: HashFormat,
+    platform: &str,
+    project_id: &str,
+    version_id: &str,
+    icon_url: Option<String>,
+    description: Option<String>,
+    mc_versions: Option<Vec<String>>,
+    loaders: Option<Vec<String>>,
+) {
+    // Create base mod toml
+    let mut mod_toml = ModToml::new(
+        name.to_string(),
+        format!("mods/{}", filename),
+        download_url.to_string(),
+        hash.to_string(),
+        hash_format,
+    ).with_side(Side::Both);
+    
+    // Add update source based on platform
+    match platform.to_lowercase().as_str() {
+        "modrinth" => {
+            mod_toml = mod_toml.with_modrinth_update(project_id.to_string(), version_id.to_string());
+        }
+        "curseforge" => {
+            if let (Ok(pid), Ok(fid)) = (project_id.parse::<u32>(), version_id.parse::<u32>()) {
+                mod_toml = mod_toml.with_curseforge_update(pid, fid);
+            }
+        }
+        _ => {}
+    }
+    
+    // Create extended toml with OxideLauncher metadata
+    let mut extended = ModTomlExtended::from_packwiz(mod_toml);
+    
+    // Add oxide metadata with all available info
+    let has_oxide_data = icon_url.is_some() 
+        || description.is_some()
+        || mc_versions.as_ref().map_or(false, |v| !v.is_empty())
+        || loaders.as_ref().map_or(false, |v| !v.is_empty());
+    
+    if has_oxide_data {
+        extended.oxide = Some(OxideMetadata {
+            icon_url,
+            description,
+            mc_versions: mc_versions.unwrap_or_default(),
+            loaders: loaders.unwrap_or_default(),
+            ..Default::default()
+        });
+    }
+    
+    // Write the .pw.toml file to .index folder
+    let toml_filename = rustwiz::mod_toml_filename(filename);
+    let index_dir = rustwiz::index_dir(mods_dir);
+    let toml_path = index_dir.join(&toml_filename);
+    
+    if let Err(e) = rustwiz::write_mod_toml(&toml_path, &extended) {
+        tracing::warn!("Failed to write mod metadata: {}", e);
+    }
+}
+
+/// Progress tracking for batch downloads
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ModDownloadProgress {
+    pub downloaded: u32,
+    pub total: u32,
+    pub current_file: String,
+}
+
+/// Request for batch mod download
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ModDownloadRequest {
+    pub mod_id: String,
+    pub version_id: String,
+    pub platform: String,
+}
 
 #[tauri::command]
 pub async fn download_mod(
@@ -46,6 +142,11 @@ pub async fn download_mod(
             let mod_id_num: u32 = mod_id.parse()
                 .map_err(|_| "Invalid CurseForge mod ID".to_string())?;
             
+            // Fetch mod details to get icon_url and description
+            let mod_info = client.get_mod(mod_id_num)
+                .await
+                .map_err(|e| format!("Failed to get mod info: {}", e))?;
+            
             let files = client.get_files(
                 mod_id_num,
                 Some(&instance.minecraft_version),
@@ -79,26 +180,38 @@ pub async fn download_mod(
                 .await
                 .map_err(|e| format!("Failed to download mod: {}", e))?;
             
-            let metadata = ModMetadata {
-                mod_id: mod_id.clone(),
-                name: version.name.clone(),
-                version: version.version_number.clone(),
-                provider: "CurseForge".to_string(),
-                icon_url: None,
-            };
+            // Create RustWiz metadata with icon_url and description
+            let hash = rustwiz::compute_file_hash(&file_path, HashFormat::Sha512)
+                .unwrap_or_default();
             
-            let metadata_path = mods_dir.join(format!("{}.metadata.json", file.filename));
-            if let Ok(json) = serde_json::to_string_pretty(&metadata) {
-                let _ = std::fs::write(metadata_path, json);
-            }
+            create_mod_metadata(
+                &mods_dir,
+                &file.filename,
+                &version.name,
+                &download_url,
+                &hash,
+                HashFormat::Sha512,
+                "curseforge",
+                &mod_id,
+                &version.id,
+                mod_info.icon_url.clone(),
+                Some(mod_info.description.clone()),
+                Some(vec![instance.minecraft_version.clone()]),
+                Some(vec![loader_name.clone()]),
+            );
         },
         _ => {
             let client = ModrinthClient::new();
             
+            // Fetch project details to get icon_url and description
+            let project = client.get_project(&mod_id)
+                .await
+                .map_err(|e| format!("Failed to get project info: {}", e))?;
+            
             let versions = client.get_versions(
                 &mod_id,
                 Some(&[instance.minecraft_version.clone()]),
-                Some(&[loader_name]),
+                Some(&[loader_name.clone()]),
             ).await.map_err(|e| format!("Failed to get mod versions: {}", e))?;
             
             if versions.is_empty() {
@@ -117,18 +230,28 @@ pub async fn download_mod(
                 .await
                 .map_err(|e| format!("Failed to download mod: {}", e))?;
             
-            let metadata = ModMetadata {
-                mod_id: mod_id.clone(),
-                name: version.name.clone(),
-                version: version.version_number.clone(),
-                provider: "Modrinth".to_string(),
-                icon_url: None,
-            };
+            // Create RustWiz metadata with icon_url and description
+            let hash = file.sha512.clone()
+                .unwrap_or_else(|| {
+                    rustwiz::compute_file_hash(&file_path, HashFormat::Sha512)
+                        .unwrap_or_default()
+                });
             
-            let metadata_path = mods_dir.join(format!("{}.metadata.json", file.filename));
-            if let Ok(json) = serde_json::to_string_pretty(&metadata) {
-                let _ = std::fs::write(metadata_path, json);
-            }
+            create_mod_metadata(
+                &mods_dir,
+                &file.filename,
+                &version.name,
+                &file.url,
+                &hash,
+                HashFormat::Sha512,
+                "modrinth",
+                &mod_id,
+                &version.id,
+                project.icon_url.clone(),
+                Some(project.description.clone()),
+                Some(vec![instance.minecraft_version.clone()]),
+                Some(vec![loader_name]),
+            );
         }
     }
     
@@ -152,6 +275,10 @@ pub async fn download_mod_version(
     };
     
     let mods_dir = instance.mods_dir();
+    let mc_version = instance.minecraft_version.clone();
+    let loader_name = instance.mod_loader.as_ref()
+        .map(|ml| format!("{:?}", ml.loader_type).to_lowercase());
+    
     std::fs::create_dir_all(&mods_dir).map_err(|e| format!("Failed to create mods directory: {}", e))?;
     
     match platform.to_lowercase().as_str() {
@@ -165,6 +292,11 @@ pub async fn download_mod_version(
                 .map_err(|_| "Invalid CurseForge mod ID".to_string())?;
             let file_id: u32 = version_id.parse()
                 .map_err(|_| "Invalid CurseForge file ID".to_string())?;
+            
+            // Fetch mod details to get icon_url and description
+            let mod_info = client.get_mod(mod_id_num)
+                .await
+                .map_err(|e| format!("Failed to get mod info: {}", e))?;
             
             let version = client.get_file(mod_id_num, file_id)
                 .await
@@ -190,21 +322,33 @@ pub async fn download_mod_version(
                 .await
                 .map_err(|e| format!("Failed to download mod: {}", e))?;
             
-            let metadata = ModMetadata {
-                mod_id: mod_id.clone(),
-                name: version.name.clone(),
-                version: version.version_number.clone(),
-                provider: "CurseForge".to_string(),
-                icon_url: None,
-            };
+            // Create RustWiz metadata with icon_url and description
+            let hash = rustwiz::compute_file_hash(&file_path, HashFormat::Sha512)
+                .unwrap_or_default();
             
-            let metadata_path = mods_dir.join(format!("{}.metadata.json", file.filename));
-            if let Ok(json) = serde_json::to_string_pretty(&metadata) {
-                let _ = std::fs::write(metadata_path, json);
-            }
+            create_mod_metadata(
+                &mods_dir,
+                &file.filename,
+                &version.name,
+                &download_url,
+                &hash,
+                HashFormat::Sha512,
+                "curseforge",
+                &mod_id,
+                &version_id,
+                mod_info.icon_url.clone(),
+                Some(mod_info.description.clone()),
+                Some(vec![mc_version.clone()]),
+                loader_name.clone().map(|l| vec![l]),
+            );
         },
         _ => {
             let client = ModrinthClient::new();
+            
+            // Fetch project details to get icon_url and description
+            let project = client.get_project(&mod_id)
+                .await
+                .map_err(|e| format!("Failed to get project info: {}", e))?;
             
             let version = client.get_version(&version_id)
                 .await
@@ -224,18 +368,28 @@ pub async fn download_mod_version(
                 .await
                 .map_err(|e| format!("Failed to download mod: {}", e))?;
             
-            let metadata = ModMetadata {
-                mod_id: mod_id.clone(),
-                name: version.name.clone(),
-                version: version.version_number.clone(),
-                provider: "Modrinth".to_string(),
-                icon_url: None,
-            };
+            // Create RustWiz metadata with icon_url and description
+            let hash = file.sha512.clone()
+                .unwrap_or_else(|| {
+                    rustwiz::compute_file_hash(&file_path, HashFormat::Sha512)
+                        .unwrap_or_default()
+                });
             
-            let metadata_path = mods_dir.join(format!("{}.metadata.json", file.filename));
-            if let Ok(json) = serde_json::to_string_pretty(&metadata) {
-                let _ = std::fs::write(metadata_path, json);
-            }
+            create_mod_metadata(
+                &mods_dir,
+                &file.filename,
+                &version.name,
+                &file.url,
+                &hash,
+                HashFormat::Sha512,
+                "modrinth",
+                &mod_id,
+                &version_id,
+                project.icon_url.clone(),
+                Some(project.description.clone()),
+                Some(vec![mc_version.clone()]),
+                loader_name.map(|l| vec![l]),
+            );
         }
     }
     
@@ -259,6 +413,10 @@ pub async fn download_mods_batch(
     };
     
     let mods_dir = instance.mods_dir();
+    let mc_version = instance.minecraft_version.clone();
+    let loader_name = instance.mod_loader.as_ref()
+        .map(|ml| format!("{:?}", ml.loader_type).to_lowercase());
+    
     std::fs::create_dir_all(&mods_dir).map_err(|e| format!("Failed to create mods directory: {}", e))?;
     
     // Get max concurrent downloads from config (default to 6)
@@ -271,6 +429,8 @@ pub async fn download_mods_batch(
     let total = mods.len() as u32;
     let downloaded = Arc::new(std::sync::atomic::AtomicU32::new(0));
     let mods_dir = Arc::new(mods_dir);
+    let mc_version = Arc::new(mc_version);
+    let loader_name = Arc::new(loader_name);
     
     let mut handles = Vec::new();
     
@@ -278,6 +438,8 @@ pub async fn download_mods_batch(
         let semaphore = Arc::clone(&semaphore);
         let downloaded = Arc::clone(&downloaded);
         let mods_dir = Arc::clone(&mods_dir);
+        let mc_version = Arc::clone(&mc_version);
+        let loader_name = Arc::clone(&loader_name);
         let app_handle = app.clone();
         
         let handle = tokio::spawn(async move {
@@ -288,6 +450,8 @@ pub async fn download_mods_batch(
                 &mod_req.mod_id,
                 &mod_req.version_id,
                 &mod_req.platform,
+                &mc_version,
+                loader_name.as_deref(),
             ).await;
             
             let count = downloaded.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
@@ -330,6 +494,8 @@ async fn download_single_mod(
     mod_id: &str,
     version_id: &str,
     platform: &str,
+    mc_version: &str,
+    loader_name: Option<&str>,
 ) -> Result<(), String> {
     match platform.to_lowercase().as_str() {
         "curseforge" => {
@@ -342,6 +508,11 @@ async fn download_single_mod(
                 .map_err(|_| "Invalid CurseForge mod ID".to_string())?;
             let file_id: u32 = version_id.parse()
                 .map_err(|_| "Invalid CurseForge file ID".to_string())?;
+            
+            // Fetch mod details to get icon_url and description
+            let mod_info = client.get_mod(mod_id_num)
+                .await
+                .map_err(|e| format!("Failed to get mod info: {}", e))?;
             
             let version = client.get_file(mod_id_num, file_id)
                 .await
@@ -367,21 +538,33 @@ async fn download_single_mod(
                 .await
                 .map_err(|e| format!("Failed to download mod: {}", e))?;
             
-            let metadata = ModMetadata {
-                mod_id: mod_id.to_string(),
-                name: version.name.clone(),
-                version: version.version_number.clone(),
-                provider: "CurseForge".to_string(),
-                icon_url: None,
-            };
+            // Create RustWiz metadata with icon_url and description
+            let hash = rustwiz::compute_file_hash(&file_path, HashFormat::Sha512)
+                .unwrap_or_default();
             
-            let metadata_path = mods_dir.join(format!("{}.metadata.json", file.filename));
-            if let Ok(json) = serde_json::to_string_pretty(&metadata) {
-                let _ = std::fs::write(metadata_path, json);
-            }
+            create_mod_metadata(
+                mods_dir,
+                &file.filename,
+                &version.name,
+                &download_url,
+                &hash,
+                HashFormat::Sha512,
+                "curseforge",
+                mod_id,
+                version_id,
+                mod_info.icon_url.clone(),
+                Some(mod_info.description.clone()),
+                Some(vec![mc_version.to_string()]),
+                loader_name.map(|l| vec![l.to_string()]),
+            );
         },
         _ => {
             let client = ModrinthClient::new();
+            
+            // Fetch project details to get icon_url and description
+            let project = client.get_project(mod_id)
+                .await
+                .map_err(|e| format!("Failed to get project info: {}", e))?;
             
             let version = client.get_version(version_id)
                 .await
@@ -401,18 +584,28 @@ async fn download_single_mod(
                 .await
                 .map_err(|e| format!("Failed to download mod: {}", e))?;
             
-            let metadata = ModMetadata {
-                mod_id: mod_id.to_string(),
-                name: version.name.clone(),
-                version: version.version_number.clone(),
-                provider: "Modrinth".to_string(),
-                icon_url: None,
-            };
+            // Create RustWiz metadata with icon_url and description
+            let hash = file.sha512.clone()
+                .unwrap_or_else(|| {
+                    rustwiz::compute_file_hash(&file_path, HashFormat::Sha512)
+                        .unwrap_or_default()
+                });
             
-            let metadata_path = mods_dir.join(format!("{}.metadata.json", file.filename));
-            if let Ok(json) = serde_json::to_string_pretty(&metadata) {
-                let _ = std::fs::write(metadata_path, json);
-            }
+            create_mod_metadata(
+                mods_dir,
+                &file.filename,
+                &version.name,
+                &file.url,
+                &hash,
+                HashFormat::Sha512,
+                "modrinth",
+                mod_id,
+                version_id,
+                project.icon_url.clone(),
+                Some(project.description.clone()),
+                Some(vec![mc_version.to_string()]),
+                loader_name.map(|l| vec![l.to_string()]),
+            );
         }
     }
     

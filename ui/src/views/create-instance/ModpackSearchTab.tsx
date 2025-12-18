@@ -167,7 +167,15 @@ const LOADER_OPTIONS = [
   { value: "neoforge", label: "NeoForge" },
 ];
 
-const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const;
+// Page size options - CurseForge API max is 50, Modrinth allows 100
+const PAGE_SIZE_OPTIONS_MODRINTH = [10, 25, 50, 100] as const;
+const PAGE_SIZE_OPTIONS_CURSEFORGE = [10, 25, 50] as const;
+
+const getPageSizeOptions = (platform: Platform) =>
+  platform === "curseforge" ? PAGE_SIZE_OPTIONS_CURSEFORGE : PAGE_SIZE_OPTIONS_MODRINTH;
+
+const getMaxPageSize = (platform: Platform) =>
+  platform === "curseforge" ? 50 : 100;
 
 function formatNumber(num: number): string {
   if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
@@ -273,6 +281,11 @@ export function ModpackSearchTab({
     setCurrentPage(1);
     setSelectedCategories([]);
     setAvailableCategories([]);
+    // Adjust page size if it exceeds the new platform's max
+    const maxSize = getMaxPageSize(newPlatform);
+    if (pageSize > maxSize) {
+      setPageSize(maxSize);
+    }
   };
 
   // Count active filters
@@ -722,7 +735,7 @@ export function ModpackSearchTab({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {PAGE_SIZE_OPTIONS.map((size) => (
+                  {getPageSizeOptions(platform).map((size) => (
                     <SelectItem key={size} value={size.toString()}>
                       {size}
                     </SelectItem>

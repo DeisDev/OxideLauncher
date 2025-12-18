@@ -80,6 +80,8 @@ pub struct ModpackDetails {
 }
 
 /// Platform type for modpack search
+/// Currently only Modrinth and CurseForge are actively used; others reserved for future
+#[allow(dead_code)] // Placeholder for future platform browser support
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ModpackPlatform {
@@ -94,6 +96,7 @@ pub enum ModpackPlatform {
     FTBApp,
 }
 
+#[allow(dead_code)] // Placeholder for future platform browser support
 impl ModpackPlatform {
     pub fn display_name(&self) -> &'static str {
         match self {
@@ -674,8 +677,10 @@ async fn get_curseforge_modpack_versions(
     }).collect())
 }
 
-// API response types
+// API response types for legacy platform support (ATLauncher, Technic, FTB)
+// These are kept for potential future import/browse functionality
 
+#[allow(dead_code)] // Placeholder for future ATLauncher browser support
 #[derive(Debug, serde::Deserialize)]
 struct ATLauncherPack {
     id: u32,
@@ -694,17 +699,20 @@ struct ATLauncherPack {
     versions: Vec<ATLauncherPackVersion>,
 }
 
+#[allow(dead_code)] // Placeholder for future ATLauncher browser support
 #[derive(Debug, serde::Deserialize)]
 struct ATLauncherPackVersion {
     version: String,
     minecraft: String,
 }
 
+#[allow(dead_code)] // Placeholder for future Technic browser support
 #[derive(Debug, serde::Deserialize)]
 struct TechnicSearchResponse {
     modpacks: Option<Vec<TechnicModpack>>,
 }
 
+#[allow(dead_code)] // Placeholder for future Technic browser support
 #[derive(Debug, serde::Deserialize)]
 struct TechnicModpack {
     slug: String,
@@ -723,6 +731,7 @@ struct TechnicModpack {
     minecraft_version: Option<String>,
 }
 
+#[allow(dead_code)] // Placeholder for future FTB Legacy browser support
 #[derive(Debug, Default)]
 struct FTBLegacyPack {
     name: String,

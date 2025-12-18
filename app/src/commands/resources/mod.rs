@@ -8,9 +8,6 @@ pub mod listing;
 pub mod search;
 pub mod types;
 
-// Re-export all types for convenience
-pub use types::*;
-
 // Re-export all commands (required for Tauri command registration)
 pub use download::*;
 pub use listing::*;

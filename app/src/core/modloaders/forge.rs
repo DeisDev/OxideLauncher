@@ -37,9 +37,11 @@ pub struct ForgeVersion {
 // Forge version JSON structures (from installer JAR)
 #[derive(Debug, Deserialize)]
 struct ForgeVersionJson {
+    #[allow(dead_code)] // Parsed from JSON, needed for version validation
     id: String,
     #[serde(rename = "mainClass")]
     main_class: String,
+    #[allow(dead_code)] // Reserved for inheritance chain validation
     #[serde(rename = "inheritsFrom")]
     inherits_from: Option<String>,
     libraries: Vec<ForgeLibrary>,
@@ -78,9 +80,13 @@ struct ForgeArguments {
 // Install profile (for modern Forge with processors)
 #[derive(Debug, Deserialize)]
 struct ForgeInstallProfile {
+    #[allow(dead_code)] // Parsed from JSON for debugging/logging
     version: String,
+    #[allow(dead_code)] // Reserved for JSON path reference
     json: Option<String>,
+    #[allow(dead_code)] // Reserved for artifact path reference
     path: Option<String>,
+    #[allow(dead_code)] // Reserved for version validation
     #[serde(rename = "minecraft")]
     minecraft_version: Option<String>,
     libraries: Option<Vec<ForgeLibrary>>,
@@ -106,6 +112,7 @@ struct ForgeData {
 
 /// Forge modloader installer
 pub struct ForgeInstaller {
+    #[allow(dead_code)] // Reserved for future authenticated requests
     client: reqwest::Client,
 }
 
@@ -509,6 +516,7 @@ pub async fn get_forge_versions(minecraft_version: &str) -> Result<Vec<ForgeVers
 }
 
 /// Get the recommended Forge version for a Minecraft version
+#[allow(dead_code)] // Utility function for future auto-select feature
 pub async fn get_recommended_forge(minecraft_version: &str) -> Result<Option<String>> {
     let versions = get_forge_versions(minecraft_version).await?;
     Ok(versions.into_iter().find(|v| v.recommended).map(|v| v.version))

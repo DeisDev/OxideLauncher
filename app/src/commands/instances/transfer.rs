@@ -90,6 +90,9 @@ pub struct ModpackDownloadProgress {
     pub speed_bps: u64,
     /// Name of the file currently being downloaded (if any)
     pub current_file: Option<String>,
+    /// Current phase: "preparing", "resolving", "downloading"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phase: Option<String>,
 }
 
 /// Detected import type info
@@ -691,7 +694,7 @@ struct CurseForgeDownloadResult {
 /// Download files from CurseForge API
 /// Returns warnings and info about blocked files that need manual download
 /// game_dir is the .minecraft directory, files will be placed in appropriate subdirectories
-/// based on their path (e.g., mods/, resourcepacks/, shaderpacks/)
+/// based on their class_id from the API (mods/, resourcepacks/, shaderpacks/)
 async fn download_curseforge_files(
     files: &[FileToDownload],
     game_dir: &PathBuf,
@@ -706,37 +709,85 @@ async fn download_curseforge_files(
         return CurseForgeDownloadResult { warnings, blocked_files };
     }
     
+    // Emit preparing phase progress
+    if let Some(app) = app {
+        let _ = app.emit("modpack-download-progress", ModpackDownloadProgress {
+            downloaded: 0,
+            total: files.len(),
+            bytes_downloaded: 0,
+            speed_bps: 0,
+            current_file: None,
+            phase: Some("preparing".to_string()),
+        });
+    }
+    
+    // Phase 0: Query class IDs for all CurseForge projects to determine correct folders
+    // This ensures resource packs go to resourcepacks/, shaders to shaderpacks/, etc.
+    let cf_project_ids: Vec<u32> = files.iter()
+        .filter_map(|f| f.platform_info.as_ref())
+        .filter(|info| info.platform == "curseforge")
+        .filter_map(|info| info.project_id.parse::<u32>().ok())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    
+    let project_class_ids = if !cf_project_ids.is_empty() {
+        // Emit resolving phase progress
+        if let Some(app) = app {
+            let _ = app.emit("modpack-download-progress", ModpackDownloadProgress {
+                downloaded: 0,
+                total: files.len(),
+                bytes_downloaded: 0,
+                speed_bps: 0,
+                current_file: Some(format!("Resolving {} projects...", cf_project_ids.len())),
+                phase: Some("resolving".to_string()),
+            });
+        }
+        
+        match client.get_mods_class_ids(&cf_project_ids).await {
+            Ok(class_ids) => {
+                tracing::debug!("Fetched class IDs for {} projects", class_ids.len());
+                class_ids
+            }
+            Err(e) => {
+                tracing::warn!("Failed to fetch project class IDs, defaulting to mods folder: {}", e);
+                std::collections::HashMap::new()
+            }
+        }
+    } else {
+        std::collections::HashMap::new()
+    };
+    
     // Phase 1: Resolve all download URLs in parallel
     // Collect tasks: (url, dest_path, is_blocked, blocked_info)
     let resolve_futures: Vec<_> = files.iter().map(|file| {
         let game_dir = game_dir.clone();
         let file = file.clone();
+        let project_class_ids = project_class_ids.clone();
         
         async move {
             // Create client inside async block since CurseForgeClient isn't Clone
             let client = CurseForgeClient::new();
             
-            // Determine the target directory based on the file path
-            let target_dir = if let Some(parent) = std::path::Path::new(&file.path).parent() {
-                let parent_str = parent.to_string_lossy();
-                if !parent_str.is_empty() {
-                    game_dir.join(parent_str.as_ref())
-                } else {
-                    game_dir.join("mods")
-                }
-            } else {
-                game_dir.join("mods")
-            };
-            
-            // Ensure target directory exists
-            if let Err(e) = std::fs::create_dir_all(&target_dir) {
-                return Err(format!("Failed to create directory {}: {}", target_dir.display(), e));
-            }
-            
             if let Some(ref platform_info) = file.platform_info {
                 if platform_info.platform != "curseforge" {
-                    // Non-CurseForge file with URLs
+                    // Non-CurseForge file with URLs - use path-based directory
                     if !file.urls.is_empty() {
+                        let target_dir = if let Some(parent) = std::path::Path::new(&file.path).parent() {
+                            let parent_str = parent.to_string_lossy();
+                            if !parent_str.is_empty() {
+                                game_dir.join(parent_str.as_ref())
+                            } else {
+                                game_dir.join("mods")
+                            }
+                        } else {
+                            game_dir.join("mods")
+                        };
+                        
+                        if let Err(e) = std::fs::create_dir_all(&target_dir) {
+                            return Err(format!("Failed to create directory {}: {}", target_dir.display(), e));
+                        }
+                        
                         let filename = std::path::Path::new(&file.path)
                             .file_name()
                             .and_then(|n| n.to_str())
@@ -755,6 +806,18 @@ async fn download_curseforge_files(
                     Ok(id) => id,
                     Err(_) => return Err(format!("Invalid file ID: {}", platform_info.file_id)),
                 };
+                
+                // Determine target directory based on class_id from API
+                let folder = project_class_ids
+                    .get(&project_id)
+                    .map(|&class_id| CurseForgeClient::get_resource_folder(class_id))
+                    .unwrap_or("mods");
+                let target_dir = game_dir.join(folder);
+                
+                // Ensure target directory exists
+                if let Err(e) = std::fs::create_dir_all(&target_dir) {
+                    return Err(format!("Failed to create directory {}: {}", target_dir.display(), e));
+                }
                 
                 // Get download URL
                 match client.get_download_url(project_id, file_id).await {
@@ -786,6 +849,22 @@ async fn download_curseforge_files(
                     }
                 }
             } else if !file.urls.is_empty() {
+                // Non-platform file with URLs
+                let target_dir = if let Some(parent) = std::path::Path::new(&file.path).parent() {
+                    let parent_str = parent.to_string_lossy();
+                    if !parent_str.is_empty() {
+                        game_dir.join(parent_str.as_ref())
+                    } else {
+                        game_dir.join("mods")
+                    }
+                } else {
+                    game_dir.join("mods")
+                };
+                
+                if let Err(e) = std::fs::create_dir_all(&target_dir) {
+                    return Err(format!("Failed to create directory {}: {}", target_dir.display(), e));
+                }
+                
                 let filename = std::path::Path::new(&file.path)
                     .file_name()
                     .and_then(|n| n.to_str())
@@ -829,7 +908,7 @@ async fn download_curseforge_files(
     let bytes_downloaded = Arc::new(AtomicU64::new(0));
     let start_time = Instant::now();
     
-    // Emit initial progress
+    // Emit initial download phase progress
     if let Some(app) = app {
         let _ = app.emit("modpack-download-progress", ModpackDownloadProgress {
             downloaded: 0,
@@ -837,6 +916,7 @@ async fn download_curseforge_files(
             bytes_downloaded: 0,
             speed_bps: 0,
             current_file: None,
+            phase: Some("downloading".to_string()),
         });
     }
     
@@ -877,6 +957,7 @@ async fn download_curseforge_files(
                             bytes_downloaded: total_bytes,
                             speed_bps: speed,
                             current_file: Some(filename.clone()),
+                            phase: Some("downloading".to_string()),
                         });
                     }
                     
@@ -919,6 +1000,7 @@ async fn download_curseforge_files(
             bytes_downloaded: total_bytes,
             speed_bps: speed,
             current_file: None,
+            phase: Some("downloading".to_string()),
         });
     }
     

@@ -61,11 +61,14 @@ impl CurseForgeClient {
             _ => class_ids::MODS,
         };
         
+        // CurseForge API max pageSize is 50
+        let page_size = query.limit.min(50);
+        
         let mut params = vec![
             ("gameId", MINECRAFT_GAME_ID.to_string()),
             ("classId", class_id.to_string()),
             ("searchFilter", query.query.clone()),
-            ("pageSize", query.limit.to_string()),
+            ("pageSize", page_size.to_string()),
             ("index", query.offset.to_string()),
             ("sortField", query.sort.curseforge_id().to_string()),
             ("sortOrder", "desc".to_string()),
@@ -80,6 +83,21 @@ impl CurseForgeClient {
         if !query.loaders.is_empty() {
             if let Some(loader_type) = get_loader_type(&query.loaders[0]) {
                 params.push(("modLoaderType", loader_type.to_string()));
+            }
+        }
+        
+        // Add category filter - convert category names to CurseForge category IDs
+        if !query.categories.is_empty() {
+            let category_ids: Vec<u32> = query.categories.iter()
+                .filter_map(|cat| get_mod_category_id(cat))
+                .collect();
+            if !category_ids.is_empty() {
+                // CurseForge API supports categoryIds parameter for multiple categories
+                let ids_str = format!("[{}]", category_ids.iter()
+                    .map(|id| id.to_string())
+                    .collect::<Vec<_>>()
+                    .join(","));
+                params.push(("categoryIds", ids_str));
             }
         }
         
@@ -172,6 +190,44 @@ impl CurseForgeClient {
         
         Ok(response.data)
     }
+
+    /// Get multiple mods by their IDs (batch request)
+    /// Returns a map of mod_id -> class_id for routing files to correct folders
+    pub async fn get_mods_class_ids(&self, mod_ids: &[u32]) -> Result<std::collections::HashMap<u32, u32>> {
+        if mod_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        #[derive(serde::Serialize)]
+        struct GetModsRequest {
+            #[serde(rename = "modIds")]
+            mod_ids: Vec<u32>,
+        }
+
+        let response: CurseForgeModsResponse = self.request(reqwest::Method::POST, "/mods")?
+            .json(&GetModsRequest { mod_ids: mod_ids.to_vec() })
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        let mut result = std::collections::HashMap::new();
+        for m in response.data {
+            result.insert(m.id, m.class_id);
+        }
+        Ok(result)
+    }
+
+    /// Get the appropriate folder name for a CurseForge class ID
+    pub fn get_resource_folder(class_id: u32) -> &'static str {
+        match class_id {
+            class_ids::MODS => "mods",
+            class_ids::RESOURCE_PACKS => "resourcepacks",
+            class_ids::SHADERS => "shaderpacks",
+            class_ids::WORLDS => "saves",
+            _ => "mods", // Default to mods for unknown types
+        }
+    }
 }
 
 impl Default for CurseForgeClient {
@@ -187,6 +243,34 @@ fn get_loader_type(loader: &str) -> Option<u32> {
         "fabric" => Some(4),
         "quilt" => Some(5),
         "neoforge" => Some(6),
+        _ => None,
+    }
+}
+
+/// Get CurseForge category ID from category name
+/// Note: These are mod categories (classId = 6). Modpack categories have different IDs.
+fn get_mod_category_id(category: &str) -> Option<u32> {
+    match category.to_lowercase().as_str() {
+        "adventure" | "adventure and rpg" => Some(422),
+        "magic" => Some(419),
+        "tech" | "technology" => Some(412),
+        "storage" => Some(420),
+        "library" | "api and library" => Some(421),
+        "utility" | "utility & qol" => Some(5191),
+        "world gen" | "worldgen" => Some(406),
+        "cosmetic" => Some(424),
+        "food" => Some(436),
+        "armor" | "armor, tools, and weapons" => Some(434),
+        "mobs" => Some(411),
+        "miscellaneous" => Some(425),
+        "performance" => Some(6814),
+        "server utility" => Some(435),
+        "map and information" => Some(423),
+        "redstone" => Some(4558),
+        "twitch integration" => Some(4671),
+        "bug fixes" => Some(6821),
+        "education" => Some(5299),
+        "mcreator" => Some(4906),
         _ => None,
     }
 }
@@ -213,6 +297,11 @@ struct CurseForgePagination {
 #[derive(Debug, Deserialize)]
 struct CurseForgeModResponse {
     data: CurseForgeMod,
+}
+
+#[derive(Debug, Deserialize)]
+struct CurseForgeModsResponse {
+    data: Vec<CurseForgeMod>,
 }
 
 #[derive(Debug, Deserialize)]

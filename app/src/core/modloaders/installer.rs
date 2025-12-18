@@ -30,6 +30,7 @@ pub enum InstallProgress {
     /// Installation complete
     Complete,
     /// Installation failed
+    #[allow(dead_code)] // Placeholder for future error handling UI
     Failed(String),
 }
 
@@ -37,6 +38,7 @@ pub enum InstallProgress {
 #[async_trait]
 pub trait ModloaderInstaller: Send + Sync {
     /// Get the modloader type
+    #[allow(dead_code)] // Part of trait interface for future use
     fn loader_type(&self) -> ModLoaderType;
 
     /// Get available versions for a Minecraft version
@@ -52,6 +54,7 @@ pub trait ModloaderInstaller: Send + Sync {
     ) -> Result<ModloaderProfile>;
 
     /// Check if a version is installed
+    #[allow(dead_code)] // Part of trait interface for future use
     fn is_installed(&self, minecraft_version: &str, loader_version: &str, libraries_dir: &PathBuf) -> bool;
 }
 
@@ -139,7 +142,7 @@ pub async fn download_modloader_libraries(
     // Progress tracking
     let downloaded_count = Arc::new(AtomicUsize::new(0));
     let failed_count = Arc::new(AtomicUsize::new(0));
-    let download_total = to_download.len();
+    let _download_total = to_download.len();
     
     // Initial progress
     if let Some(ref callback) = progress {
@@ -181,7 +184,7 @@ pub async fn download_modloader_libraries(
     }).collect();
     
     // Execute downloads in parallel
-    let results: Vec<_> = futures::future::join_all(download_futures).await;
+    let _results: Vec<_> = futures::future::join_all(download_futures).await;
     
     // Update progress after completion
     let downloaded = downloaded_count.load(Ordering::SeqCst);
@@ -239,6 +242,7 @@ pub async fn install_modloader(
 }
 
 /// Check if all libraries for a profile are downloaded
+#[allow(dead_code)] // Utility for future pre-launch validation
 pub fn check_libraries_installed(profile: &ModloaderProfile, libraries_dir: &PathBuf) -> bool {
     for lib in &profile.libraries {
         if !lib.applies_to_current_os() {
@@ -254,6 +258,7 @@ pub fn check_libraries_installed(profile: &ModloaderProfile, libraries_dir: &Pat
 }
 
 /// Get missing libraries for a profile
+#[allow(dead_code)] // Utility for future incremental download feature
 pub fn get_missing_libraries<'a>(profile: &'a ModloaderProfile, libraries_dir: &PathBuf) -> Vec<&'a ModloaderLibrary> {
     profile.libraries
         .iter()

@@ -35,9 +35,11 @@ struct NeoForgeMavenResponse {
 // NeoForge version JSON structures (similar to Forge)
 #[derive(Debug, Deserialize)]
 struct NeoForgeVersionJson {
+    #[allow(dead_code)] // Parsed from JSON for debugging/logging
     id: String,
     #[serde(rename = "mainClass")]
     main_class: String,
+    #[allow(dead_code)] // Reserved for inheritance chain validation
     #[serde(rename = "inheritsFrom")]
     inherits_from: Option<String>,
     libraries: Vec<NeoForgeLibrary>,
@@ -107,6 +109,7 @@ struct NeoForgeData {
 
 /// NeoForge modloader installer
 pub struct NeoForgeInstaller {
+    #[allow(dead_code)] // Reserved for future authenticated requests
     client: reqwest::Client,
 }
 
@@ -534,6 +537,7 @@ pub async fn get_neoforge_versions(minecraft_version: &str) -> Result<Vec<NeoFor
 }
 
 /// Get the recommended NeoForge version for a Minecraft version
+#[allow(dead_code)] // Utility function for future auto-select feature
 pub async fn get_recommended_neoforge(minecraft_version: &str) -> Result<Option<String>> {
     let versions = get_neoforge_versions(minecraft_version).await?;
     Ok(versions.into_iter().find(|v| v.recommended).map(|v| v.version))

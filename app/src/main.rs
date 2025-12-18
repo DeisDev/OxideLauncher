@@ -210,6 +210,9 @@ fn main() {
             commands::config::open_data_directory,
             commands::config::open_launcher_folder,
             commands::config::open_external_url,
+            commands::config::get_window_state,
+            commands::config::save_window_state,
+            commands::config::is_window_position_memory_enabled,
             // Version commands
             commands::versions::get_minecraft_versions,
             commands::versions::get_forge_versions,
@@ -281,6 +284,15 @@ fn main() {
             commands::screenshots::open_screenshots_folder,
             // Shortcut commands
             commands::shortcuts::create_instance_shortcut,
+            // RustWiz commands (packwiz-compatible metadata)
+            commands::rustwiz::init_rustwiz,
+            commands::rustwiz::has_rustwiz,
+            commands::rustwiz::create_mod_metadata,
+            commands::rustwiz::delete_mod_metadata,
+            commands::rustwiz::check_mod_updates,
+            commands::rustwiz::export_modrinth_pack,
+            commands::rustwiz::export_curseforge_pack,
+            commands::rustwiz::export_rustwiz_format,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

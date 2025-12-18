@@ -2,6 +2,15 @@
  * Settings types for the modular settings system
  */
 
+// Window state for position memory
+export interface WindowState {
+  x: number | null;
+  y: number | null;
+  width: number | null;
+  height: number | null;
+  maximized: boolean;
+}
+
 // Java installation type
 export interface JavaInstallation {
   id: string;
@@ -80,6 +89,11 @@ export interface UiConfig {
   window_height: number;
   last_instance: string | null;
   rust_mode: boolean;
+  remember_main_window_position: boolean;
+  remember_dialog_window_positions: boolean;
+  main_window_state: WindowState;
+  dialog_window_states: Record<string, WindowState>;
+  open_instance_after_install: boolean;
 }
 
 export interface MinecraftConfig {

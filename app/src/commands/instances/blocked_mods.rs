@@ -40,6 +40,7 @@ pub struct BlockedMod {
 }
 
 /// Result of resolving blocked mods
+#[allow(dead_code)] // Placeholder for future UI integration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlockedModsResult {
     /// List of blocked mods that need manual download
@@ -51,6 +52,7 @@ pub struct BlockedModsResult {
 }
 
 /// State for tracking active blocked mods watchers
+#[allow(dead_code)] // Placeholder for future file watcher feature
 pub struct BlockedModsWatcherState {
     /// Map of instance ID to blocked mods being watched
     watchers: HashMap<String, Vec<BlockedMod>>,

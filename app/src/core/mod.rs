@@ -13,3 +13,4 @@ pub mod download;
 pub mod launch;
 pub mod java;
 pub mod error;
+pub mod rustwiz;

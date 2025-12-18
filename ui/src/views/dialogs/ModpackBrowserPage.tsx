@@ -23,6 +23,7 @@ import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -143,11 +144,20 @@ interface ModpackDownloadProgress {
   bytes_downloaded: number;
   speed_bps: number;
   current_file: string | null;
+  phase?: "preparing" | "resolving" | "downloading";
 }
 
 type SortOption = "relevance" | "downloads" | "follows" | "newest" | "updated";
 
-const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const;
+// Page size options - CurseForge API max is 50, Modrinth allows 100
+const PAGE_SIZE_OPTIONS_MODRINTH = [10, 25, 50, 100] as const;
+const PAGE_SIZE_OPTIONS_CURSEFORGE = [10, 25, 50] as const;
+
+const getPageSizeOptions = (platform: "modrinth" | "curseforge") =>
+  platform === "curseforge" ? PAGE_SIZE_OPTIONS_CURSEFORGE : PAGE_SIZE_OPTIONS_MODRINTH;
+
+const getMaxPageSize = (platform: "modrinth" | "curseforge") =>
+  platform === "curseforge" ? 50 : 100;
 
 // Minecraft version options
 const MC_VERSIONS = [
@@ -260,10 +270,14 @@ export function ModpackBrowserPage() {
     
     listen<ModpackDownloadProgress>("modpack-download-progress", (event) => {
       setDownloadProgress(event.payload);
-      // Update text progress too
-      if (event.payload.total > 0) {
-        const speedText = formatDownloadSpeed(event.payload.speed_bps);
-        setInstallProgress(`Downloading mods... ${event.payload.downloaded}/${event.payload.total} (${speedText})`);
+      // Update text progress based on phase
+      const { phase, downloaded, total, current_file } = event.payload;
+      if (phase === "preparing") {
+        setInstallProgress("Preparing download...");
+      } else if (phase === "resolving") {
+        setInstallProgress(current_file || "Resolving download URLs...");
+      } else if (total > 0) {
+        setInstallProgress(`Downloading mods... ${downloaded}/${total}`);
       }
     }).then((fn) => {
       unlisten = fn;
@@ -407,6 +421,11 @@ export function ModpackBrowserPage() {
       setSelectedModpack(null);
       setSelectedCategories([]);
       setCurrentPage(1);
+      // Adjust page size if it exceeds the new platform's max
+      const maxSize = getMaxPageSize(newPlatform);
+      if (pageSize > maxSize) {
+        setPageSize(maxSize);
+      }
     }
   };
 
@@ -487,7 +506,7 @@ export function ModpackBrowserPage() {
       }
 
       // Installation complete - close window
-      await finishInstallation();
+      await finishInstallation(result.instance_id);
     } catch (error) {
       console.error("Failed to install modpack:", error);
       setInstallError(`${error}`);
@@ -511,7 +530,7 @@ export function ModpackBrowserPage() {
       console.error("Failed to copy blocked mods:", error);
     }
 
-    await finishInstallation();
+    await finishInstallation(currentInstanceId);
   };
 
   // Handle blocked mods dialog skip (user wants to skip missing mods)
@@ -531,19 +550,35 @@ export function ModpackBrowserPage() {
       console.error("Failed to copy matched blocked mods:", error);
     }
 
-    await finishInstallation();
+    await finishInstallation(currentInstanceId);
   };
 
   // Finish installation and close window
-  const finishInstallation = async () => {
+  const finishInstallation = async (instanceId?: string) => {
     setInstallProgress("Installation complete!");
     setIsInstalling(false);
     setDownloadProgress(null);
 
-    // Emit events to notify main window to refresh instances and navigate to instances view
-    await emit("instances-changed", {});
-    await emit("navigate-to-instances", {});
-    await emit("dialog-closed", {});
+    // Check config to see if we should open the instance details
+    try {
+      const config = await invoke<{ ui: { open_instance_after_install: boolean } }>("get_config");
+      if (config.ui.open_instance_after_install && instanceId) {
+        // Emit event to navigate to instance details
+        await emit("instances-changed", {});
+        await emit("navigate-to-instance", { instanceId });
+        await emit("dialog-closed", {});
+      } else {
+        // Emit events to notify main window to refresh instances and navigate to instances view
+        await emit("instances-changed", {});
+        await emit("navigate-to-instances", {});
+        await emit("dialog-closed", {});
+      }
+    } catch {
+      // Default to instances view
+      await emit("instances-changed", {});
+      await emit("navigate-to-instances", {});
+      await emit("dialog-closed", {});
+    }
 
     // Close this window after a short delay
     setTimeout(async () => {
@@ -811,7 +846,7 @@ export function ModpackBrowserPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {PAGE_SIZE_OPTIONS.map((size) => (
+                    {getPageSizeOptions(platform).map((size) => (
                       <SelectItem key={size} value={size.toString()}>
                         {size}
                       </SelectItem>

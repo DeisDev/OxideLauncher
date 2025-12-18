@@ -3,7 +3,108 @@
 use super::types::{ResourcePackInfo, ShaderPackInfo};
 use crate::commands::state::AppState;
 use crate::commands::utils::format_file_size;
+use std::io::Read;
+use std::path::Path;
 use tauri::State;
+
+/// Extract pack.png and pack.mcmeta from a resource pack
+fn extract_pack_metadata(pack_path: &Path, cache_dir: &Path) -> (Option<String>, Option<String>) {
+    let mut icon_path = None;
+    let mut description = None;
+    
+    // Determine the base name for caching
+    let pack_name = pack_path.file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown");
+    
+    if pack_path.is_file() {
+        // It's a zip file
+        if let Ok(file) = std::fs::File::open(pack_path) {
+            if let Ok(mut archive) = zip::ZipArchive::new(file) {
+                // Try to extract pack.png
+                if let Ok(mut png_file) = archive.by_name("pack.png") {
+                    let mut png_data = Vec::new();
+                    if png_file.read_to_end(&mut png_data).is_ok() {
+                        // Create cache directory if needed
+                        let _ = std::fs::create_dir_all(cache_dir);
+                        let cached_icon = cache_dir.join(format!("{}.png", pack_name));
+                        if std::fs::write(&cached_icon, &png_data).is_ok() {
+                            icon_path = Some(cached_icon.to_string_lossy().to_string());
+                        }
+                    }
+                }
+                
+                // Try to extract pack.mcmeta for description
+                if let Ok(mut mcmeta_file) = archive.by_name("pack.mcmeta") {
+                    let mut mcmeta_data = String::new();
+                    if mcmeta_file.read_to_string(&mut mcmeta_data).is_ok() {
+                        description = parse_pack_description(&mcmeta_data);
+                    }
+                }
+            }
+        }
+    } else if pack_path.is_dir() {
+        // It's a folder-based resource pack
+        let png_path = pack_path.join("pack.png");
+        if png_path.exists() {
+            if let Ok(png_data) = std::fs::read(&png_path) {
+                let _ = std::fs::create_dir_all(cache_dir);
+                let cached_icon = cache_dir.join(format!("{}.png", pack_name));
+                if std::fs::write(&cached_icon, &png_data).is_ok() {
+                    icon_path = Some(cached_icon.to_string_lossy().to_string());
+                }
+            }
+        }
+        
+        let mcmeta_path = pack_path.join("pack.mcmeta");
+        if mcmeta_path.exists() {
+            if let Ok(mcmeta_data) = std::fs::read_to_string(&mcmeta_path) {
+                description = parse_pack_description(&mcmeta_data);
+            }
+        }
+    }
+    
+    (icon_path, description)
+}
+
+/// Parse description from pack.mcmeta JSON
+fn parse_pack_description(mcmeta: &str) -> Option<String> {
+    // Parse the JSON
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(mcmeta) {
+        if let Some(pack) = json.get("pack") {
+            if let Some(desc) = pack.get("description") {
+                // Description can be a string or a complex JSON text component
+                return Some(extract_text_from_json_component(desc));
+            }
+        }
+    }
+    None
+}
+
+/// Extract plain text from Minecraft JSON text component
+fn extract_text_from_json_component(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Array(arr) => {
+            arr.iter().map(extract_text_from_json_component).collect::<Vec<_>>().join("")
+        }
+        serde_json::Value::Object(obj) => {
+            let mut result = String::new();
+            // Extract "text" field
+            if let Some(text) = obj.get("text") {
+                if let serde_json::Value::String(s) = text {
+                    result.push_str(s);
+                }
+            }
+            // Handle "extra" array for nested components
+            if let Some(extra) = obj.get("extra") {
+                result.push_str(&extract_text_from_json_component(extra));
+            }
+            result
+        }
+        _ => String::new(),
+    }
+}
 
 /// List resource packs for an instance
 #[tauri::command]
@@ -23,6 +124,9 @@ pub async fn list_resource_packs(
     if !resourcepacks_dir.exists() {
         return Ok(Vec::new());
     }
+    
+    // Create cache directory for icons
+    let cache_dir = instance.game_dir().join(".cache").join("icons").join("resourcepacks");
     
     let mut packs = Vec::new();
     
@@ -47,12 +151,16 @@ pub async fn list_resource_packs(
                     0
                 };
                 
+                // Extract icon and description from pack
+                let (icon_path, description) = extract_pack_metadata(&path, &cache_dir);
+                
                 packs.push(ResourcePackInfo {
                     filename: filename.clone(),
                     name: filename.trim_end_matches(".zip").to_string(),
-                    description: None,
+                    description,
                     size: format_file_size(size),
                     enabled: true,
+                    icon_path,
                 });
             }
         }

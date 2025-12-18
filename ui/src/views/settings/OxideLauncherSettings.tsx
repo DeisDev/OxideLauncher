@@ -1,4 +1,4 @@
-import { FolderOpen, Cog } from "lucide-react";
+import { FolderOpen, Cog, Monitor } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -152,6 +152,24 @@ function GeneralSettings() {
               }
             />
           </div>
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="openInstanceAfterInstall">Open Instance After Install</Label>
+              <p className="text-sm text-muted-foreground">
+                Automatically open the instance details view after installing a modpack.
+              </p>
+            </div>
+            <Switch
+              id="openInstanceAfterInstall"
+              checked={config.ui.open_instance_after_install}
+              onCheckedChange={(checked) =>
+                setConfig({
+                  ...config,
+                  ui: { ...config.ui, open_instance_after_install: checked },
+                })
+              }
+            />
+          </div>
         </CardContent>
       </Card>
     </div>
@@ -301,6 +319,77 @@ function InstanceSettings() {
   );
 }
 
+// Window Settings Sub-tab
+function WindowSettings() {
+  const { config, setConfig } = useSettings();
+  if (!config) return null;
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Monitor className="h-5 w-5" />
+            Window Position Memory
+          </CardTitle>
+          <CardDescription>
+            Remember window positions and sizes across sessions.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="rememberMainWindow" className="inline-flex items-center">
+                Remember Main Window Position
+                <SettingTooltip>
+                  Save and restore the main launcher window position and size when you restart the launcher.
+                </SettingTooltip>
+              </Label>
+              <p className="text-sm text-muted-foreground">
+                The launcher will open in the same position and size as when you closed it.
+              </p>
+            </div>
+            <Switch
+              id="rememberMainWindow"
+              checked={config.ui.remember_main_window_position}
+              onCheckedChange={(checked) =>
+                setConfig({
+                  ...config,
+                  ui: { ...config.ui, remember_main_window_position: checked },
+                })
+              }
+            />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="rememberDialogWindows" className="inline-flex items-center">
+                Remember Dialog Window Positions
+                <SettingTooltip>
+                  Save and restore positions for dialog windows like the mod browser, modpack browser, etc.
+                </SettingTooltip>
+              </Label>
+              <p className="text-sm text-muted-foreground">
+                Browser windows will remember their last position and size.
+              </p>
+            </div>
+            <Switch
+              id="rememberDialogWindows"
+              checked={config.ui.remember_dialog_window_positions}
+              onCheckedChange={(checked) =>
+                setConfig({
+                  ...config,
+                  ui: { ...config.ui, remember_dialog_window_positions: checked },
+                })
+              }
+            />
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 // Appearance Settings Sub-tab
 function AppearanceSettings() {
   const { config, setConfig } = useSettings();
@@ -429,6 +518,7 @@ export function OxideLauncherSettings() {
       <TabsList className="mb-4">
         <TabsTrigger value="general">General</TabsTrigger>
         <TabsTrigger value="instances">Instances</TabsTrigger>
+        <TabsTrigger value="window">Window</TabsTrigger>
         <TabsTrigger value="appearance">Appearance</TabsTrigger>
       </TabsList>
 
@@ -438,6 +528,10 @@ export function OxideLauncherSettings() {
 
       <TabsContent value="instances">
         <InstanceSettings />
+      </TabsContent>
+
+      <TabsContent value="window">
+        <WindowSettings />
       </TabsContent>
 
       <TabsContent value="appearance">

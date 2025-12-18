@@ -21,6 +21,7 @@ import {
   ArrowUp,
   ArrowDown,
   ArrowUpDown,
+  ArrowUpCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -58,6 +59,7 @@ import {
 } from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
 import { openDialogWindow, WINDOW_LABELS } from "@/lib/windowManager";
+import { ModUpdatesDialog } from "@/components/dialogs";
 import type { InstanceInfo, InstalledMod } from "../types";
 import { formatFileSize } from "../utils";
 
@@ -78,6 +80,7 @@ export function ModsTab({ instanceId, instance }: ModsTabProps) {
   const [deleteModDialog, setDeleteModDialog] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isLoadingMods, setIsLoadingMods] = useState(true);
+  const [showUpdatesDialog, setShowUpdatesDialog] = useState(false);
   
   // Sorting state
   const [sortColumn, setSortColumn] = useState<SortColumn>("name");
@@ -461,6 +464,14 @@ export function ModsTab({ instanceId, instance }: ModsTabProps) {
           <Plus className="mr-2 h-4 w-4" />
           Add File
         </Button>
+        <Button 
+          variant="outline" 
+          size="sm" 
+          onClick={() => setShowUpdatesDialog(true)}
+        >
+          <ArrowUpCircle className="mr-2 h-4 w-4" />
+          Check Updates
+        </Button>
         
         <div className="h-6 w-px bg-border mx-1" />
         
@@ -638,10 +649,10 @@ export function ModsTab({ instanceId, instance }: ModsTabProps) {
                             <img
                               src={mod.icon_url}
                               alt=""
-                              className="w-8 h-8 rounded object-cover"
+                              className="w-8 h-8 rounded object-contain shrink-0"
                             />
                           ) : (
-                            <div className="w-8 h-8 rounded bg-muted flex items-center justify-center">
+                            <div className="w-8 h-8 rounded bg-muted flex items-center justify-center shrink-0">
                               <Package className="h-4 w-4 text-muted-foreground" />
                             </div>
                           )}
@@ -798,6 +809,15 @@ export function ModsTab({ instanceId, instance }: ModsTabProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Mod Updates Dialog */}
+      <ModUpdatesDialog
+        open={showUpdatesDialog}
+        onOpenChange={setShowUpdatesDialog}
+        instanceId={instanceId}
+        instanceName={instance.name}
+        onModsUpdated={loadInstalledMods}
+      />
     </div>
   );
 }

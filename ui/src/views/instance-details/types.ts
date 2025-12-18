@@ -89,6 +89,8 @@ export interface ResourcePackInfo {
   description: string | null;
   size: string;
   enabled: boolean;
+  /** Path to the cached pack icon (extracted from pack.png inside the archive) */
+  icon_path: string | null;
 }
 
 export interface ShaderPackInfo {
@@ -102,6 +104,27 @@ export interface ScreenshotInfo {
   path: string;
   timestamp: string | null;
   size: string;
+}
+
+// =============================================================================
+// RustWiz Update Types
+// =============================================================================
+
+export interface UpdateCheckResult {
+  filename: string;
+  current_version: string;
+  latest_version: string | null;
+  latest_version_id: string | null;
+  update_available: boolean;
+  platform: string;
+  changelog: string | null;
+}
+
+export interface BatchUpdateResult {
+  updates_available: UpdateCheckResult[];
+  up_to_date: string[];
+  unchecked: string[];
+  errors: string[];
 }
 
 export interface InstanceSettings {

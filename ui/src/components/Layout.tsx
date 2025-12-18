@@ -25,6 +25,7 @@ import {
   setupMainWindowCloseHandler, 
   setupDialogEventListeners,
   focusCurrentDialog,
+  setupMainWindowPositionMemory,
 } from "@/lib/windowManager";
 
 interface LayoutProps {
@@ -96,6 +97,12 @@ export function Layout({ children }: LayoutProps) {
     // Setup handler to close dialogs when main window closes
     setupMainWindowCloseHandler();
     
+    // Setup window position memory for main window
+    let cleanupPositionMemory: (() => void) | null = null;
+    setupMainWindowPositionMemory().then(cleanup => {
+      cleanupPositionMemory = cleanup;
+    });
+    
     // Setup listeners for dialog open/close events
     const setupListeners = async () => {
       const cleanup = await setupDialogEventListeners(
@@ -113,22 +120,32 @@ export function Layout({ children }: LayoutProps) {
     
     return () => {
       cleanupPromise.then(cleanup => cleanup());
+      cleanupPositionMemory?.();
     };
   }, []);
 
   // Listen for navigation events from dialog windows
   useEffect(() => {
-    let unlisten: UnlistenFn | undefined;
+    let unlistenInstances: UnlistenFn | undefined;
+    let unlistenInstance: UnlistenFn | undefined;
     
     (async () => {
-      unlisten = await listen("navigate-to-instances", () => {
+      unlistenInstances = await listen("navigate-to-instances", () => {
         // Navigate to instances view when modpack install completes
         navigate("/");
+      });
+      
+      unlistenInstance = await listen<{ instanceId: string }>("navigate-to-instance", (event) => {
+        // Navigate to specific instance details when modpack install completes
+        if (event.payload.instanceId) {
+          navigate(`/instance/${event.payload.instanceId}`);
+        }
       });
     })();
     
     return () => {
-      unlisten?.();
+      unlistenInstances?.();
+      unlistenInstance?.();
     };
   }, [navigate]);
 

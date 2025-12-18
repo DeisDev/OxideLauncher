@@ -14,6 +14,7 @@ pub mod worlds;
 pub mod resources;
 pub mod screenshots;
 pub mod shortcuts;
+pub mod rustwiz;
 
 // Re-export state types for use in main.rs
 pub use state::AppState;

@@ -10,7 +10,7 @@ use crate::core::error::Result;
 use super::transfer::{
     ImportType, OxideManifest, OxideIcon, ModrinthIndex, CurseForgeManifest, 
     PrismInstanceConfig, PrismPackJson, ImportResult, FileToDownload, PlatformFileInfo,
-    OxideInstanceSettings, OxideManagedPack, FTBInstanceJson, FTBVersionJson,
+    OxideInstanceSettings, OxideManagedPack, FTBInstanceJson,
 };
 
 /// Progress callback type that's Send + Sync
@@ -578,7 +578,7 @@ async fn import_technic(
         .collect();
     
     // Determine if this is a modpack.jar based pack or version.json based pack
-    let has_modpack_jar = file_list.iter().any(|f| f.ends_with("bin/modpack.jar"));
+    let _has_modpack_jar = file_list.iter().any(|f| f.ends_with("bin/modpack.jar"));
     let has_version_json = file_list.iter().any(|f| f.ends_with("bin/version.json"));
     
     // Try to determine the Minecraft version
