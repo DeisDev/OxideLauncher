@@ -3,12 +3,15 @@
 use async_trait::async_trait;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::core::launch::{LaunchContext, LaunchStep, LaunchStepResult};
 use crate::core::minecraft::version::{fetch_version_manifest, fetch_version_data, ArgumentValue, ArgumentValueInner, evaluate_rules_with_features, VersionData};
 use crate::core::minecraft::libraries::build_classpath;
-use crate::core::modloaders::ModloaderProfile;
+use crate::core::modloaders::{ModloaderProfile, LauncherType};
+
+/// The name of the wrapper JAR
+const OXIDE_LAUNCH_JAR: &str = "OxideLaunch.jar";
 
 /// Step that launches the actual game process
 pub struct LaunchGameStep {
@@ -24,6 +27,73 @@ impl LaunchGameStep {
             progress: 0.0,
             process: None,
         }
+    }
+    
+    /// Get the path to the OxideLaunch wrapper JAR
+    fn get_wrapper_jar_path(&self, context: &LaunchContext) -> Option<std::path::PathBuf> {
+        // Look for the wrapper JAR in the data directory (primary location)
+        let data_dir = &context.config.data_dir;
+        let wrapper_path = std::path::Path::new(data_dir).join("bin").join(OXIDE_LAUNCH_JAR);
+        
+        if wrapper_path.exists() {
+            return Some(wrapper_path);
+        }
+        
+        // Check next to the executable (for bundled builds)
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                let alt_path = exe_dir.join(OXIDE_LAUNCH_JAR);
+                if alt_path.exists() {
+                    return Some(alt_path);
+                }
+                
+                // Also check in bin/ next to exe
+                let bin_path = exe_dir.join("bin").join(OXIDE_LAUNCH_JAR);
+                if bin_path.exists() {
+                    return Some(bin_path);
+                }
+            }
+        }
+        
+        // Check in target directory (for development builds)
+        // This looks for the JAR in target/debug/bin or target/release/bin
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                // exe_dir is typically target/debug or target/release
+                let dev_path = exe_dir.join("bin").join(OXIDE_LAUNCH_JAR);
+                if dev_path.exists() {
+                    return Some(dev_path);
+                }
+            }
+        }
+
+        warn!("OxideLaunch.jar not found at {:?}", wrapper_path);
+        None
+    }
+    
+    /// Determine the launcher type for vanilla Minecraft (no modloader)
+    fn get_vanilla_launcher_type(&self, minecraft_version: &str) -> LauncherType {
+        // Parse version to determine if it's legacy
+        // Versions before 1.6 are considered legacy (need applet/special handling)
+        // Versions 1.6-1.12.2 with vanilla are standard
+        // Versions 1.13+ are standard
+        
+        let parts: Vec<&str> = minecraft_version.split('.').collect();
+        if parts.len() >= 2 {
+            if let Ok(major) = parts[1].parse::<u32>() {
+                if major < 6 {
+                    return LauncherType::Legacy;
+                }
+            }
+        }
+        
+        // Alpha/Beta versions
+        if minecraft_version.starts_with("a") || minecraft_version.starts_with("b") 
+            || minecraft_version.starts_with("c") {
+            return LauncherType::Legacy;
+        }
+        
+        LauncherType::Standard
     }
 
     /// Load the modloader profile if it exists
@@ -369,41 +439,184 @@ impl LaunchStep for LaunchGameStep {
         
         self.progress = 0.3;
         
+        // Determine launcher type
+        let launcher_type = if let Some(ref profile) = modloader_profile {
+            profile.launcher_type
+        } else {
+            self.get_vanilla_launcher_type(&context.instance.minecraft_version)
+        };
+        
+        info!("Using launcher type: {:?}", launcher_type);
+        
+        // Get the main class (modloader overrides vanilla)
+        let main_class = self.get_main_class(&version_data, modloader_profile.as_ref());
+        
+        // Check for wrapper JAR
+        let wrapper_jar = self.get_wrapper_jar_path(context);
+        let use_wrapper = wrapper_jar.is_some() && launcher_type != LauncherType::Standard;
+        
+        if launcher_type != LauncherType::Standard && wrapper_jar.is_none() {
+            warn!(
+                "OxideLaunch wrapper JAR not found! Legacy/tweaker launch may fail. \
+                The wrapper JAR should be placed at <data_dir>/bin/OxideLaunch.jar"
+            );
+        }
+        
         // Build arguments
         self.status = Some("Building launch arguments...".to_string());
         
-        // Build JVM arguments with modloader support
-        let mut args = self.build_jvm_args(context, &version_data, modloader_profile.as_ref());
+        let mut args: Vec<String>;
         
-        // Add modloader-specific JVM arguments
-        if let Some(ref profile) = modloader_profile {
-            for arg in &profile.jvm_arguments {
-                let substituted = self.substitute_jvm_variable(
-                    arg, 
-                    context, 
-                    &self.build_full_classpath(context, &version_data, Some(profile))
-                );
-                args.push(substituted);
-            }
-        }
-        
-        // Add main class (modloader overrides vanilla)
-        let main_class = self.get_main_class(&version_data, modloader_profile.as_ref());
-        args.push(main_class);
-        
-        // Add game arguments
-        args.extend(self.build_game_args(context, &version_data));
-        
-        // Add modloader-specific game arguments
-        if let Some(ref profile) = modloader_profile {
-            for arg in &profile.game_arguments {
-                args.push(self.substitute_game_variable(arg, context, &version_data));
+        if use_wrapper {
+            // Use wrapper JAR launch mode
+            let wrapper_path = wrapper_jar.unwrap();
+            info!("Using OxideLaunch wrapper at {:?}", wrapper_path);
+            
+            // Build classpath with wrapper JAR prepended
+            let classpath = {
+                let base_classpath = self.build_full_classpath(context, &version_data, modloader_profile.as_ref());
+                let separator = if cfg!(target_os = "windows") { ";" } else { ":" };
+                format!("{}{}{}", wrapper_path.to_string_lossy(), separator, base_classpath)
+            };
+            
+            // Start with JVM arguments
+            args = vec![];
+            
+            // Memory settings
+            let min_mem = context.instance.settings.min_memory.unwrap_or(context.config.memory.min_memory);
+            let max_mem = context.instance.settings.max_memory.unwrap_or(context.config.memory.max_memory);
+            args.push(format!("-Xms{}M", min_mem));
+            args.push(format!("-Xmx{}M", max_mem));
+            
+            // Native library path
+            args.push(format!("-Djava.library.path={}", context.natives_dir.to_string_lossy()));
+            
+            // Process version-specific JVM arguments
+            if let Some(ref arguments) = version_data.arguments {
+                for arg in &arguments.jvm {
+                    match arg {
+                        ArgumentValue::Simple(s) => {
+                            // Skip classpath args - we handle those separately
+                            if s != "-cp" && s != "${classpath}" {
+                                args.push(self.substitute_jvm_variable(s, context, &classpath));
+                            }
+                        }
+                        ArgumentValue::Conditional { rules, value } => {
+                            if evaluate_rules_with_features(rules, &context.features) {
+                                let values = match value {
+                                    ArgumentValueInner::Single(s) => vec![s.clone()],
+                                    ArgumentValueInner::Multiple(v) => v.clone(),
+                                };
+                                for v in values {
+                                    if v != "-cp" && v != "${classpath}" {
+                                        args.push(self.substitute_jvm_variable(&v, context, &classpath));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
             
-            // Add tweaker classes (for legacy modloaders like old Forge/LiteLoader)
-            for tweaker in &profile.tweakers {
-                args.push("--tweakClass".to_string());
-                args.push(tweaker.clone());
+            // Add modloader-specific JVM arguments
+            if let Some(ref profile) = modloader_profile {
+                for arg in &profile.jvm_arguments {
+                    let substituted = self.substitute_jvm_variable(arg, context, &classpath);
+                    args.push(substituted);
+                }
+            }
+            
+            // Custom JVM arguments from instance
+            if let Some(ref custom_args) = context.instance.settings.jvm_args {
+                args.extend(custom_args.split_whitespace().map(String::from));
+            }
+            args.extend(context.config.java.extra_args.clone());
+            
+            // Classpath
+            args.push("-cp".to_string());
+            args.push(classpath);
+            
+            // Wrapper entry point
+            args.push("dev.oxide.launch.OxideLaunch".to_string());
+            
+            // Wrapper arguments
+            args.push("--launcher".to_string());
+            args.push(launcher_type.name().to_string());
+            
+            args.push("--mainClass".to_string());
+            args.push(main_class);
+            
+            let game_dir = context.instance.game_dir();
+            args.push("--gameDir".to_string());
+            args.push(game_dir.to_string_lossy().to_string());
+            
+            args.push("--assetsDir".to_string());
+            args.push(context.assets_dir.to_string_lossy().to_string());
+            
+            args.push("--width".to_string());
+            let width = context.instance.settings.window_width.unwrap_or(context.config.minecraft.window_width);
+            args.push(width.to_string());
+            
+            args.push("--height".to_string());
+            let height = context.instance.settings.window_height.unwrap_or(context.config.minecraft.window_height);
+            args.push(height.to_string());
+            
+            // Add tweaker classes for tweaker launcher type
+            if let Some(ref profile) = modloader_profile {
+                for tweaker in &profile.tweakers {
+                    args.push("--tweakClass".to_string());
+                    args.push(tweaker.clone());
+                }
+            }
+            
+            // Separator between wrapper args and game args
+            args.push("--".to_string());
+            
+            // Game arguments
+            args.extend(self.build_game_args(context, &version_data));
+            
+            // Add modloader-specific game arguments (NOT tweakers - those go above)
+            if let Some(ref profile) = modloader_profile {
+                for arg in &profile.game_arguments {
+                    args.push(self.substitute_game_variable(arg, context, &version_data));
+                }
+            }
+            
+        } else {
+            // Standard direct launch (original code path)
+            args = self.build_jvm_args(context, &version_data, modloader_profile.as_ref());
+            
+            // Add modloader-specific JVM arguments
+            if let Some(ref profile) = modloader_profile {
+                for arg in &profile.jvm_arguments {
+                    let substituted = self.substitute_jvm_variable(
+                        arg, 
+                        context, 
+                        &self.build_full_classpath(context, &version_data, Some(profile))
+                    );
+                    args.push(substituted);
+                }
+            }
+            
+            // Add main class
+            args.push(main_class);
+            
+            // Add game arguments
+            args.extend(self.build_game_args(context, &version_data));
+            
+            // Add modloader-specific game arguments
+            if let Some(ref profile) = modloader_profile {
+                for arg in &profile.game_arguments {
+                    args.push(self.substitute_game_variable(arg, context, &version_data));
+                }
+                
+                // Add tweaker classes (for legacy modloaders like old Forge/LiteLoader)
+                // Note: This position is wrong for LaunchWrapper but kept for compatibility
+                // when wrapper JAR is not available
+                for tweaker in &profile.tweakers {
+                    args.push("--tweakClass".to_string());
+                    args.push(tweaker.clone());
+                }
             }
         }
         

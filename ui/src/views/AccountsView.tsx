@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { openDialogWindow, WINDOW_LABELS } from "@/lib/windowManager";
+import { PlayerHeadAvatar } from "@/components/common";
 import { AccountInfo, DeviceCodeInfo, AuthProgressEventType } from "@/types";
 
 export function AccountsView() {
@@ -310,15 +311,6 @@ export function AccountsView() {
     });
   };
 
-  const getSkinAvatar = (account: AccountInfo) => {
-    if (account.skin_url) {
-      // Minecraft skin URLs point to the full skin, we need the face
-      // The face is at position (8,8) with size 8x8 in the skin texture
-      // For simplicity, we'll just show a colored avatar based on username
-    }
-    return null;
-  };
-
   return (
     <div className="w-full">
       <div className="flex flex-wrap justify-between items-center gap-4 mb-8 pb-5 border-b border-border">
@@ -521,9 +513,18 @@ export function AccountsView() {
             >
               <CardContent className="flex items-center justify-between p-6">
                 <div className="flex items-center gap-4">
-                  <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center text-lg font-semibold overflow-hidden">
-                    {getSkinAvatar(account) || account.username.charAt(0).toUpperCase()}
-                  </div>
+                  {account.account_type === "Microsoft" ? (
+                    <PlayerHeadAvatar
+                      uuid={account.uuid}
+                      skinUrl={account.skin_url}
+                      size={48}
+                      fallbackText={account.username.charAt(0).toUpperCase()}
+                    />
+                  ) : (
+                    <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center text-lg font-semibold overflow-hidden">
+                      {account.username.charAt(0).toUpperCase()}
+                    </div>
+                  )}
                   <div>
                     <div className="flex items-center gap-2">
                       <h3 className="font-semibold text-lg">{account.username}</h3>

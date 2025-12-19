@@ -7,6 +7,42 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// Launcher type for different Minecraft/modloader combinations
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum LauncherType {
+    /// Standard launcher for modern versions (Forge 1.13+, NeoForge, Fabric, Quilt, Vanilla 1.13+)
+    #[default]
+    Standard,
+    /// Tweaker-based launcher for LaunchWrapper modloaders (Forge 1.6-1.12.2, LiteLoader)
+    Tweaker,
+    /// Legacy launcher for very old versions (Alpha, Beta, early Release)
+    Legacy,
+}
+
+impl LauncherType {
+    /// Detect launcher type from main class
+    pub fn from_main_class(main_class: &str) -> Self {
+        if main_class == "net.minecraft.launchwrapper.Launch" {
+            LauncherType::Tweaker
+        } else if main_class == "net.minecraft.client.Minecraft" 
+            || main_class.contains("MinecraftApplet") {
+            LauncherType::Legacy
+        } else {
+            LauncherType::Standard
+        }
+    }
+    
+    /// Get the name of this launcher type
+    pub fn name(&self) -> &'static str {
+        match self {
+            LauncherType::Standard => "standard",
+            LauncherType::Tweaker => "tweaker",
+            LauncherType::Legacy => "legacy",
+        }
+    }
+}
+
 /// A complete modloader profile that can be merged with vanilla Minecraft
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModloaderProfile {
@@ -21,6 +57,10 @@ pub struct ModloaderProfile {
     
     /// Main class to use (overrides vanilla main class)
     pub main_class: String,
+    
+    /// Launcher type for this modloader
+    #[serde(default)]
+    pub launcher_type: LauncherType,
     
     /// Libraries required by this modloader
     pub libraries: Vec<ModloaderLibrary>,
@@ -52,6 +92,7 @@ impl ModloaderProfile {
             version,
             minecraft_version,
             main_class: String::new(),
+            launcher_type: LauncherType::Standard,
             libraries: Vec::new(),
             jvm_arguments: Vec::new(),
             game_arguments: Vec::new(),
@@ -59,6 +100,11 @@ impl ModloaderProfile {
             min_java_version: None,
             recommended_java_version: None,
         }
+    }
+    
+    /// Set the launcher type based on the main class
+    pub fn detect_launcher_type(&mut self) {
+        self.launcher_type = LauncherType::from_main_class(&self.main_class);
     }
 
     /// Save the profile to a file

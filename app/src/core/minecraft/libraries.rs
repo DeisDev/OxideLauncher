@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 use crate::core::minecraft::version::{Library, VersionData};
+use tracing::debug;
 
 /// Get all libraries needed for a version
 pub fn get_required_libraries(version: &VersionData) -> Vec<&Library> {
@@ -82,6 +83,26 @@ pub fn get_missing_libraries(
                 }
             }
             None
+        })
+        .collect()
+}
+
+/// Get native libraries that need to be downloaded
+pub fn get_missing_native_libraries(
+    version: &VersionData,
+    libraries_dir: &PathBuf,
+) -> Vec<NativeLibrary> {
+    get_native_libraries(version, libraries_dir)
+        .into_iter()
+        .filter(|native| {
+            let path = libraries_dir.join(&native.path);
+            if path.exists() {
+                debug!("Native library already exists: {}", native.name);
+                false
+            } else {
+                debug!("Native library missing: {} at {:?}", native.name, path);
+                true
+            }
         })
         .collect()
 }

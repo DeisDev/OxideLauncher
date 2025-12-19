@@ -9,7 +9,7 @@ use crate::core::{
     error::{OxideError, Result},
     minecraft::{
         version::{fetch_version_manifest, fetch_version_data},
-        libraries::{get_missing_libraries, get_native_libraries},
+        libraries::{get_missing_libraries, get_native_libraries, get_missing_native_libraries},
         assets::get_missing_assets,
     },
 };
@@ -129,14 +129,49 @@ pub async fn setup_instance(
         }
     }
     
-    // 5. Extract native libraries
+    // 5. Download and extract native libraries
     send_progress(SetupProgress::ExtractingNatives);
+    
+    // First, download any missing native JARs
+    let missing_natives = get_missing_native_libraries(&version_data, &libraries_dir);
+    if !missing_natives.is_empty() {
+        tracing::info!("Downloading {} native library JARs...", missing_natives.len());
+        
+        let download_tasks: Vec<DownloadTask> = missing_natives.iter().map(|native| {
+            DownloadTask {
+                url: native.url.clone(),
+                dest: libraries_dir.join(&native.path),
+                sha1: Some(native.sha1.clone()),
+                size: Some(native.size),
+            }
+        }).collect();
+        
+        let (download_tx, mut download_rx) = mpsc::channel(100);
+        let tasks_clone = download_tasks.clone();
+        
+        // Download in background
+        tokio::spawn(async move {
+            let _ = download_files(tasks_clone, 5, Some(download_tx)).await;
+        });
+        
+        // Wait for all downloads to complete
+        while download_rx.recv().await.is_some() {}
+        
+        tracing::info!("Native library JARs downloaded");
+    }
+    
+    // Now extract natives
     let natives = get_native_libraries(&version_data, &libraries_dir);
     let natives_dir = instance.game_dir().join("natives");
     std::fs::create_dir_all(&natives_dir)?;
     
     for native in natives {
-        extract_native_library(&PathBuf::from(&native.path), &natives_dir, Some(&native.extract_exclude))?;
+        let native_path = libraries_dir.join(&native.path);
+        if native_path.exists() {
+            extract_native_library(&native_path, &natives_dir, Some(&native.extract_exclude))?;
+        } else {
+            tracing::warn!("Native JAR not found: {:?}", native_path);
+        }
     }
     
     // 6. Download asset index

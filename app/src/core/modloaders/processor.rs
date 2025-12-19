@@ -335,3 +335,62 @@ pub fn extract_installer_libraries(
     info!("Extracted {} libraries from installer", extracted_count);
     Ok(())
 }
+
+/// Extract the universal JAR from a legacy Forge installer
+/// 
+/// Legacy Forge installers (pre-1.13) bundle the actual Forge mod as a "universal" JAR
+/// at the root of the installer (e.g., "forge-1.12.2-14.23.0.2486-universal.jar").
+/// This needs to be extracted to the libraries directory since it's not available
+/// for direct download from Maven.
+pub fn extract_forge_universal_jar(
+    installer_jar: &Path,
+    minecraft_version: &str,
+    forge_version: &str,
+    libraries_dir: &Path,
+) -> Result<bool> {
+    let file = std::fs::File::open(installer_jar)?;
+    let mut archive = zip::ZipArchive::new(file)?;
+    
+    // Look for universal JAR patterns:
+    // - forge-{mc}-{forge}-universal.jar
+    // - forge-{mc}-{forge}.jar (some older versions)
+    let universal_patterns = [
+        format!("forge-{}-{}-universal.jar", minecraft_version, forge_version),
+        format!("forge-{}-{}.jar", minecraft_version, forge_version),
+    ];
+    
+    for pattern in &universal_patterns {
+        debug!("Looking for universal JAR: {}", pattern);
+        
+        match archive.by_name(pattern) {
+            Ok(mut zip_file) => {
+                // Determine the destination path in libraries
+                // Format: net/minecraftforge/forge/{mc}-{forge}/forge-{mc}-{forge}.jar
+                let full_version = format!("{}-{}", minecraft_version, forge_version);
+                let dest_path = libraries_dir
+                    .join("net/minecraftforge/forge")
+                    .join(&full_version)
+                    .join(format!("forge-{}.jar", full_version));
+                
+                if dest_path.exists() {
+                    info!("Universal JAR already exists at {:?}", dest_path);
+                    return Ok(true);
+                }
+                
+                if let Some(parent) = dest_path.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                
+                let mut output = std::fs::File::create(&dest_path)?;
+                std::io::copy(&mut zip_file, &mut output)?;
+                
+                info!("Extracted universal JAR from {} to {:?}", pattern, dest_path);
+                return Ok(true);
+            }
+            Err(_) => continue,
+        }
+    }
+    
+    debug!("No universal JAR found in installer (this is normal for modern Forge)");
+    Ok(false)
+}

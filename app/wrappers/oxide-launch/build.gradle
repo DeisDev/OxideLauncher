@@ -1,0 +1,29 @@
+plugins {
+    id 'java'
+}
+
+group = 'dev.oxide.launch'
+version = '1.0.0'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
+
+repositories {
+    mavenCentral()
+}
+
+jar {
+    manifest {
+        attributes 'Main-Class': 'dev.oxide.launch.OxideLaunch'
+    }
+    
+    archiveBaseName = 'OxideLaunch'
+    archiveVersion = ''
+}
+
+// Ensure we compile with UTF-8
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}

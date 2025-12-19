@@ -15,5 +15,5 @@ pub use neoforge::get_neoforge_versions;
 pub use fabric::get_fabric_versions;
 pub use quilt::get_quilt_versions;
 pub use liteloader::get_liteloader_versions;
-pub use profile::ModloaderProfile;
+pub use profile::{ModloaderProfile, LauncherType};
 pub use installer::{InstallProgress, install_modloader, get_installer};

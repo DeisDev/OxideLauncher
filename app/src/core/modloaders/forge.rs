@@ -6,8 +6,11 @@
 //! 3. Running processors (for newer Forge versions)
 //! 4. Downloading libraries
 //!
-//! Modern Forge (1.13+) uses the cpw.mods.bootstraplauncher.BootstrapLauncher main class.
-//! Legacy Forge (<1.13) uses tweakers with the vanilla main class.
+//! Modern Forge (1.13+) uses the cpw.mods.bootstraplauncher.BootstrapLauncher main class
+//! and has a separate version.json file in the installer.
+//!
+//! Legacy Forge (<1.13) uses net.minecraft.launchwrapper.Launch as the main class with
+//! FML tweakers, and stores version info in install_profile.json under "versionInfo".
 
 use std::path::PathBuf;
 use std::io::Read;
@@ -21,7 +24,7 @@ use crate::core::download::download_file;
 use crate::core::instance::ModLoaderType;
 use super::profile::{ModloaderProfile, ModloaderLibrary, maven_to_path};
 use super::installer::{ModloaderInstaller, InstallProgress, ProgressCallback, download_modloader_libraries};
-use super::processor::{run_processors, Processor, ProcessorContext, ProcessorData, extract_installer_libraries};
+use super::processor::{run_processors, Processor, ProcessorContext, ProcessorData, extract_installer_libraries, extract_forge_universal_jar};
 
 const FORGE_MAVEN_METADATA: &str = "https://files.minecraftforge.net/net/minecraftforge/forge/maven-metadata.json";
 const FORGE_MAVEN_URL: &str = "https://maven.minecraftforge.net";
@@ -94,6 +97,29 @@ struct ForgeInstallProfile {
     data: Option<std::collections::HashMap<String, ForgeData>>,
 }
 
+// Legacy install profile format (Forge <1.13)
+// Has "install" and "versionInfo" at root level
+#[derive(Debug, Deserialize)]
+struct LegacyForgeInstallProfile {
+    #[allow(dead_code)] // Used to validate this is a legacy profile
+    install: LegacyInstallInfo,
+    #[serde(rename = "versionInfo")]
+    version_info: ForgeVersionJson,
+}
+
+#[derive(Debug, Deserialize)]
+struct LegacyInstallInfo {
+    #[allow(dead_code)]
+    #[serde(rename = "profileName")]
+    profile_name: Option<String>,
+    #[allow(dead_code)]
+    target: Option<String>,
+    #[allow(dead_code)]
+    path: Option<String>,
+    #[allow(dead_code)]
+    minecraft: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 struct ForgeProcessor {
     jar: String,
@@ -141,23 +167,47 @@ impl ForgeInstaller {
     }
 
     /// Extract version JSON from installer JAR
+    /// Modern Forge (1.13+): Has a separate version.json file
+    /// Legacy Forge (<1.13): Has versionInfo nested inside install_profile.json
     fn extract_version_json(&self, installer_path: &PathBuf) -> Result<ForgeVersionJson> {
         let file = std::fs::File::open(installer_path)?;
         let mut archive = zip::ZipArchive::new(file)?;
 
-        // Try to find version.json (modern Forge) or the version-specific JSON
+        // First try to find version.json (modern Forge)
         let json_name = archive
             .file_names()
             .find(|n| n.ends_with("version.json"))
-            .map(|s| s.to_string())
-            .ok_or_else(|| OxideError::Modloader("No version.json found in installer".into()))?;
+            .map(|s| s.to_string());
 
-        let mut json_file = archive.by_name(&json_name)?;
+        if let Some(name) = json_name {
+            debug!("Found version.json in installer (modern Forge format)");
+            let mut json_file = archive.by_name(&name)?;
+            let mut content = String::new();
+            json_file.read_to_string(&mut content)?;
+            let version_json: ForgeVersionJson = serde_json::from_str(&content)?;
+            return Ok(version_json);
+        }
+
+        // Fall back to legacy format: extract versionInfo from install_profile.json
+        debug!("No version.json found, trying legacy format (versionInfo in install_profile.json)");
+        drop(archive);
+        
+        let file = std::fs::File::open(installer_path)?;
+        let mut archive = zip::ZipArchive::new(file)?;
+        
+        let mut profile_file = archive.by_name("install_profile.json")
+            .map_err(|_| OxideError::Modloader("No version.json or install_profile.json found in installer".into()))?;
+        
         let mut content = String::new();
-        json_file.read_to_string(&mut content)?;
-
-        let version_json: ForgeVersionJson = serde_json::from_str(&content)?;
-        Ok(version_json)
+        profile_file.read_to_string(&mut content)?;
+        
+        // Try parsing as legacy format first
+        if let Ok(legacy_profile) = serde_json::from_str::<LegacyForgeInstallProfile>(&content) {
+            info!("Parsed legacy Forge install profile (versionInfo format)");
+            return Ok(legacy_profile.version_info);
+        }
+        
+        Err(OxideError::Modloader("Failed to parse installer: neither modern version.json nor legacy versionInfo found".into()))
     }
 
     /// Extract install_profile.json for modern Forge
@@ -169,8 +219,17 @@ impl ForgeInstaller {
             Ok(mut file) => {
                 let mut content = String::new();
                 file.read_to_string(&mut content)?;
-                let profile: ForgeInstallProfile = serde_json::from_str(&content)?;
-                Ok(Some(profile))
+                
+                // Try modern format first
+                if let Ok(profile) = serde_json::from_str::<ForgeInstallProfile>(&content) {
+                    // Verify it's modern format by checking for processors
+                    if profile.processors.is_some() {
+                        return Ok(Some(profile));
+                    }
+                }
+                
+                // Legacy format doesn't have a separate install profile structure we need
+                Ok(None)
             }
             Err(_) => Ok(None), // Not all Forge versions have install_profile.json
         };
@@ -191,6 +250,9 @@ impl ForgeInstaller {
         );
 
         profile.main_class = version_json.main_class.clone();
+        
+        // Detect launcher type based on main class
+        profile.detect_launcher_type();
 
         // Parse arguments
         if let Some(ref args) = version_json.arguments {
@@ -211,6 +273,9 @@ impl ForgeInstaller {
         }
 
         // Parse legacy tweakers from minecraft_arguments
+        // NOTE: For legacy Forge, minecraft_arguments contains the COMPLETE set of game arguments
+        // (like --username, --version, etc.) which are already handled by vanilla MC version data.
+        // We only need to extract the --tweakClass arguments here.
         if let Some(ref mc_args) = version_json.minecraft_arguments {
             let parts: Vec<&str> = mc_args.split_whitespace().collect();
             let mut i = 0;
@@ -219,7 +284,7 @@ impl ForgeInstaller {
                     profile.tweakers.push(parts[i + 1].to_string());
                     i += 2;
                 } else {
-                    profile.game_arguments.push(parts[i].to_string());
+                    // Skip other arguments - they're duplicates of vanilla MC arguments
                     i += 1;
                 }
             }
@@ -305,6 +370,21 @@ impl ModloaderInstaller for ForgeInstaller {
         }
         debug!("Installer downloaded successfully");
 
+        // Extract universal JAR from legacy Forge installers
+        // This must be done BEFORE downloading libraries, as the forge JAR is bundled in the installer
+        // and not available for direct download from Maven for legacy versions
+        let forge_version_clean = if loader_version.contains('-') {
+            loader_version.split('-').last().unwrap_or(loader_version).to_string()
+        } else {
+            loader_version.to_string()
+        };
+        
+        match extract_forge_universal_jar(&installer_path, minecraft_version, &forge_version_clean, libraries_dir) {
+            Ok(true) => info!("Extracted Forge universal JAR from installer"),
+            Ok(false) => debug!("No universal JAR in installer (normal for modern Forge)"),
+            Err(e) => warn!("Failed to extract universal JAR: {} (continuing anyway)", e),
+        }
+
         // Extract version JSON
         if let Some(ref callback) = progress {
             callback(InstallProgress::Processing("Extracting version data...".to_string()));
@@ -354,6 +434,7 @@ impl ModloaderInstaller for ForgeInstaller {
                     version: loader_version.to_string(),
                     minecraft_version: minecraft_version.to_string(),
                     main_class: String::new(),
+                    launcher_type: super::profile::LauncherType::Standard,
                     libraries: proc_libs.iter().map(|lib| {
                         let mut modloader_lib = ModloaderLibrary {
                             name: lib.name.clone(),

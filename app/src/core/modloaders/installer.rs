@@ -84,6 +84,9 @@ fn resolve_library_url(lib: &ModloaderLibrary) -> String {
             } else if lib.name.starts_with("org.ow2.asm") {
                 // ASM libraries - try Maven Central first
                 format!("https://repo1.maven.org/maven2/{}", path)
+            } else if lib.name.starts_with("net.minecraft:") || lib.name.starts_with("lzma:") {
+                // Minecraft libraries - these are hosted on Mojang's server, not Maven Central
+                format!("https://libraries.minecraft.net/{}", path)
             } else {
                 // Default to Maven Central
                 format!("https://repo1.maven.org/maven2/{}", path)

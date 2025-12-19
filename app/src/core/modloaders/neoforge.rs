@@ -326,6 +326,7 @@ impl ModloaderInstaller for NeoForgeInstaller {
                     version: loader_version.to_string(),
                     minecraft_version: minecraft_version.to_string(),
                     main_class: String::new(),
+                    launcher_type: super::profile::LauncherType::Standard,
                     libraries: proc_libs.iter().map(|lib| {
                         let mut modloader_lib = ModloaderLibrary {
                             name: lib.name.clone(),
