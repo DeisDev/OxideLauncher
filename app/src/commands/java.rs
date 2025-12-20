@@ -1,4 +1,22 @@
-//! Java management commands
+//! Java management Tauri commands.
+//!
+//! Oxide Launcher — A Rust-based Minecraft launcher
+//! Copyright (C) 2025 Oxide Launcher contributors
+//!
+//! This file is part of Oxide Launcher.
+//!
+//! Oxide Launcher is free software: you can redistribute it and/or modify
+//! it under the terms of the GNU General Public License as published by
+//! the Free Software Foundation, either version 3 of the License, or
+//! (at your option) any later version.
+//!
+//! Oxide Launcher is distributed in the hope that it will be useful,
+//! but WITHOUT ANY WARRANTY; without even the implied warranty of
+//! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+//! GNU General Public License for more details.
+//!
+//! You should have received a copy of the GNU General Public License
+//! along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use serde::{Deserialize, Serialize};
 use tauri::Emitter;
@@ -166,4 +184,119 @@ pub async fn delete_java(java_path: String) -> Result<(), String> {
     delete_java_installation(&installation)
         .await
         .map_err(|e| e.to_string())
+}
+/// Java compatibility check result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JavaCompatibilityResult {
+    /// Whether the Java is compatible
+    pub compatible: bool,
+    /// The Java major version
+    pub java_major: u32,
+    /// The required Java major version
+    pub required_major: u32,
+    /// Minimum compatible version
+    pub min_compatible: u32,
+    /// Maximum compatible version
+    pub max_compatible: u32,
+    /// Human-readable message
+    pub message: String,
+}
+
+/// Check if a Java version is compatible with a Minecraft version
+#[tauri::command]
+pub fn check_java_compatibility(
+    java_major_version: u32,
+    minecraft_version: String,
+) -> JavaCompatibilityResult {
+    let required = crate::core::java::detection::get_required_java_version(&minecraft_version);
+    let (min_compatible, max_compatible) = get_java_compat_range(required);
+    
+    let compatible = java_major_version >= min_compatible && java_major_version <= max_compatible;
+    
+    let message = if compatible {
+        format!("Java {} is compatible with Minecraft {}", java_major_version, minecraft_version)
+    } else if java_major_version < min_compatible {
+        format!(
+            "Java {} is too old for Minecraft {}. Requires Java {} or newer.",
+            java_major_version, minecraft_version, min_compatible
+        )
+    } else {
+        format!(
+            "Java {} may not be compatible with Minecraft {}. Recommended: Java {}",
+            java_major_version, minecraft_version, required
+        )
+    };
+    
+    JavaCompatibilityResult {
+        compatible,
+        java_major: java_major_version,
+        required_major: required,
+        min_compatible,
+        max_compatible,
+        message,
+    }
+}
+
+/// Get the compatible Java version range (min, max) for a required version
+fn get_java_compat_range(required_major: u32) -> (u32, u32) {
+    match required_major {
+        8 => (8, 8),
+        16 => (16, 17),
+        17 => (17, 21),
+        21 => (21, 25),
+        _ => (required_major, required_major + 4),
+    }
+}
+
+/// Find the best Java for an instance, with option to auto-download
+#[tauri::command]
+pub async fn find_best_java_for_instance(
+    minecraft_version: String,
+    auto_download: bool,
+    app: tauri::AppHandle,
+) -> Result<Option<JavaInstallationInfo>, String> {
+    use crate::core::java::detection::find_java_for_minecraft;
+    use crate::core::java::download::{fetch_adoptium_download, download_java as do_download};
+    
+    // First try to find existing compatible Java
+    if let Some(java) = find_java_for_minecraft(&minecraft_version) {
+        return Ok(Some(JavaInstallationInfo::from(java)));
+    }
+    
+    // No compatible Java found - check if we should auto-download
+    if !auto_download {
+        return Ok(None);
+    }
+    
+    // Get required version and download
+    let required = crate::core::java::detection::get_required_java_version(&minecraft_version);
+    
+    // Emit event that we're starting auto-download
+    let _ = app.emit("java-auto-download-started", &required);
+    
+    // Fetch download metadata
+    let metadata = fetch_adoptium_download(required)
+        .await
+        .map_err(|e| format!("Failed to get Java download info: {}", e))?;
+    
+    // Create progress channel
+    let (tx, mut rx) = tokio::sync::mpsc::channel(100);
+    
+    // Spawn progress event emitter
+    let app_clone = app.clone();
+    tokio::spawn(async move {
+        while let Some(progress) = rx.recv().await {
+            let _ = app_clone.emit("java-download-progress", &progress);
+        }
+    });
+    
+    // Download Java
+    let installation = do_download(&metadata, Some(tx))
+        .await
+        .map_err(|e| format!("Failed to download Java: {}", e))?;
+    
+    // Emit completion
+    let _ = app.emit("java-auto-download-completed", &required);
+    
+    Ok(Some(JavaInstallationInfo::from(installation)))
 }

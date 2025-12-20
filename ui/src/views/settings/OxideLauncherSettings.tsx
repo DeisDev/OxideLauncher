@@ -1,3 +1,23 @@
+// General launcher settings tab for appearance, paths, and behavior
+//
+// Oxide Launcher — A Rust-based Minecraft launcher
+// Copyright (C) 2025 Oxide Launcher contributors
+//
+// This file is part of Oxide Launcher.
+//
+// Oxide Launcher is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Oxide Launcher is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 import { FolderOpen, Cog, Monitor } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -511,6 +531,229 @@ function AppearanceSettings() {
   );
 }
 
+// Debug Settings Sub-tab
+function DebugSettings() {
+  const { config, setConfig } = useSettings();
+  if (!config) return null;
+
+  const openLogsFolder = async () => {
+    try {
+      await invoke("open_logs_directory");
+    } catch (error) {
+      console.error("Failed to open logs directory:", error);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Debug Information</CardTitle>
+          <CardDescription>
+            These settings apply globally to all instances. Individual instances can override these in their own settings.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={openLogsFolder}>
+              <FolderOpen className="h-4 w-4 mr-2" />
+              Open Logs Folder
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Java Console Output</CardTitle>
+          <CardDescription>
+            Control how Java runs and displays console output globally (Windows only)
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="forceJavaConsole" className="inline-flex items-center">
+                Force java.exe Console
+                <SettingTooltip>
+                  Uses java.exe instead of javaw.exe for all instances, showing console output in a separate window. Useful for debugging modloader issues.
+                </SettingTooltip>
+              </Label>
+              <p className="text-sm text-muted-foreground">
+                Always show Java console output (uses java.exe instead of javaw.exe)
+              </p>
+            </div>
+            <Switch
+              id="forceJavaConsole"
+              checked={config.debug.force_java_console}
+              onCheckedChange={(checked) =>
+                setConfig({
+                  ...config,
+                  debug: { ...config.debug, force_java_console: checked },
+                })
+              }
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="disableCreateNoWindow" className="inline-flex items-center">
+                Disable Hidden Window Flag
+                <SettingTooltip>
+                  Disables the CREATE_NO_WINDOW flag that normally hides the console. Combined with java.exe, ensures console is visible.
+                </SettingTooltip>
+              </Label>
+              <p className="text-sm text-muted-foreground">
+                Allow console windows to appear (disable CREATE_NO_WINDOW)
+              </p>
+            </div>
+            <Switch
+              id="disableCreateNoWindow"
+              checked={config.debug.disable_create_no_window}
+              onCheckedChange={(checked) =>
+                setConfig({
+                  ...config,
+                  debug: { ...config.debug, disable_create_no_window: checked },
+                })
+              }
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Launch Diagnostics</CardTitle>
+          <CardDescription>
+            Tools for diagnosing launch and runtime issues
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="logLaunchCommands" className="inline-flex items-center">
+                Log Launch Commands
+                <SettingTooltip>
+                  Saves the full Java launch command to launch_command.log in each instance's directory. Helpful for manually testing or debugging launches.
+                </SettingTooltip>
+              </Label>
+              <p className="text-sm text-muted-foreground">
+                Save launch commands to file for all instances
+              </p>
+            </div>
+            <Switch
+              id="logLaunchCommands"
+              checked={config.debug.log_launch_commands}
+              onCheckedChange={(checked) =>
+                setConfig({
+                  ...config,
+                  debug: { ...config.debug, log_launch_commands: checked },
+                })
+              }
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="verboseLogging" className="inline-flex items-center">
+                Verbose Logging
+                <SettingTooltip>
+                  Enables more detailed logging throughout the application for debugging purposes.
+                </SettingTooltip>
+              </Label>
+              <p className="text-sm text-muted-foreground">
+                Enable detailed debug logging
+              </p>
+            </div>
+            <Switch
+              id="verboseLogging"
+              checked={config.debug.verbose_logging}
+              onCheckedChange={(checked) =>
+                setConfig({
+                  ...config,
+                  debug: { ...config.debug, verbose_logging: checked },
+                })
+              }
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="keepNatives" className="inline-flex items-center">
+                Keep Natives After Launch
+                <SettingTooltip>
+                  Don't clean up the natives directory after launching. Useful for debugging native library issues.
+                </SettingTooltip>
+              </Label>
+              <p className="text-sm text-muted-foreground">
+                Preserve natives directory for inspection
+              </p>
+            </div>
+            <Switch
+              id="keepNatives"
+              checked={config.debug.keep_natives_after_launch}
+              onCheckedChange={(checked) =>
+                setConfig({
+                  ...config,
+                  debug: { ...config.debug, keep_natives_after_launch: checked },
+                })
+              }
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Quick Debug Preset</CardTitle>
+          <CardDescription>
+            Enable all debug settings at once for maximum visibility
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Button
+            variant="outline"
+            className="w-full"
+            onClick={() =>
+              setConfig({
+                ...config,
+                debug: {
+                  ...config.debug,
+                  force_java_console: true,
+                  disable_create_no_window: true,
+                  log_launch_commands: true,
+                  verbose_logging: true,
+                },
+              })
+            }
+          >
+            Enable All Debug Settings
+          </Button>
+          <Button
+            variant="ghost"
+            className="w-full"
+            onClick={() =>
+              setConfig({
+                ...config,
+                debug: {
+                  force_java_console: false,
+                  disable_create_no_window: false,
+                  log_launch_commands: false,
+                  verbose_logging: false,
+                  keep_natives_after_launch: false,
+                  pause_before_launch: false,
+                },
+              })
+            }
+          >
+            Reset All Debug Settings
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            Remember to disable debug settings when not troubleshooting - they may impact performance.
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 // Main Oxide Launcher Settings Component
 export function OxideLauncherSettings() {
   return (
@@ -520,6 +763,7 @@ export function OxideLauncherSettings() {
         <TabsTrigger value="instances">Instances</TabsTrigger>
         <TabsTrigger value="window">Window</TabsTrigger>
         <TabsTrigger value="appearance">Appearance</TabsTrigger>
+        <TabsTrigger value="debug">Debug</TabsTrigger>
       </TabsList>
 
       <TabsContent value="general">
@@ -536,6 +780,10 @@ export function OxideLauncherSettings() {
 
       <TabsContent value="appearance">
         <AppearanceSettings />
+      </TabsContent>
+
+      <TabsContent value="debug">
+        <DebugSettings />
       </TabsContent>
     </Tabs>
   );

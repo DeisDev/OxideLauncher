@@ -1,4 +1,22 @@
-//! Instance data types
+//! Instance type definitions and data structures.
+//!
+//! Oxide Launcher — A Rust-based Minecraft launcher
+//! Copyright (C) 2025 Oxide Launcher contributors
+//!
+//! This file is part of Oxide Launcher.
+//!
+//! Oxide Launcher is free software: you can redistribute it and/or modify
+//! it under the terms of the GNU General Public License as published by
+//! the Free Software Foundation, either version 3 of the License, or
+//! (at your option) any later version.
+//!
+//! Oxide Launcher is distributed in the hope that it will be useful,
+//! but WITHOUT ANY WARRANTY; without even the implied warranty of
+//! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+//! GNU General Public License for more details.
+//!
+//! You should have received a copy of the GNU General Public License
+//! along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #![allow(dead_code)] // Types will be used as features are completed
 
@@ -317,6 +335,20 @@ pub struct InstanceSettings {
     /// Quit launcher when game exits
     #[serde(default)]
     pub quit_launcher_on_exit: bool,
+    
+    // === Debug Settings ===
+    
+    /// Force use of java.exe instead of javaw.exe (shows console output on Windows)
+    #[serde(default)]
+    pub use_java_console: bool,
+    
+    /// Disable CREATE_NO_WINDOW flag (allows console window to appear)
+    #[serde(default)]
+    pub disable_create_no_window: bool,
+    
+    /// Log the full launch command for debugging
+    #[serde(default)]
+    pub log_launch_command: bool,
 }
 
 impl Default for InstanceSettings {
@@ -340,6 +372,10 @@ impl Default for InstanceSettings {
             skip_java_compatibility_check: false,
             close_launcher_on_launch: false,
             quit_launcher_on_exit: false,
+            // Debug settings
+            use_java_console: false,
+            disable_create_no_window: false,
+            log_launch_command: false,
         }
     }
 }

@@ -1,7 +1,22 @@
-//! Oxide Launcher - A Rust-based Minecraft Launcher
-//! 
-//! This launcher is inspired by Prism Launcher and aims to provide
-//! a modern, fast, and feature-rich experience for managing Minecraft instances.
+//! Main entry point for the Oxide Launcher Tauri application.
+//!
+//! Oxide Launcher — A Rust-based Minecraft launcher
+//! Copyright (C) 2025 Oxide Launcher contributors
+//!
+//! This file is part of Oxide Launcher.
+//!
+//! Oxide Launcher is free software: you can redistribute it and/or modify
+//! it under the terms of the GNU General Public License as published by
+//! the Free Software Foundation, either version 3 of the License, or
+//! (at your option) any later version.
+//!
+//! Oxide Launcher is distributed in the hope that it will be useful,
+//! but WITHOUT ANY WARRANTY; without even the implied warranty of
+//! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+//! GNU General Public License for more details.
+//!
+//! You should have received a copy of the GNU General Public License
+//! along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 // Prevents additional console window on Windows in release
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -138,6 +153,7 @@ fn main() {
             commands::instances::open_instance_logs_folder,
             commands::instances::export_instance,
             commands::instances::kill_instance,
+            commands::instances::get_instance_settings,
             commands::instances::update_instance_settings,
             // Component management commands
             commands::instances::get_instance_components,
@@ -252,6 +268,8 @@ fn main() {
             commands::java::download_java,
             commands::java::get_java_install_dir,
             commands::java::delete_java,
+            commands::java::check_java_compatibility,
+            commands::java::find_best_java_for_instance,
             // World commands
             commands::worlds::list_worlds,
             commands::worlds::delete_world,

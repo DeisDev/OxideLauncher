@@ -1,4 +1,22 @@
-//! Extract natives step - extracts native libraries from JAR files
+//! Extract natives step.
+//!
+//! Oxide Launcher — A Rust-based Minecraft launcher
+//! Copyright (C) 2025 Oxide Launcher contributors
+//!
+//! This file is part of Oxide Launcher.
+//!
+//! Oxide Launcher is free software: you can redistribute it and/or modify
+//! it under the terms of the GNU General Public License as published by
+//! the Free Software Foundation, either version 3 of the License, or
+//! (at your option) any later version.
+//!
+//! Oxide Launcher is distributed in the hope that it will be useful,
+//! but WITHOUT ANY WARRANTY; without even the implied warranty of
+//! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+//! GNU General Public License for more details.
+//!
+//! You should have received a copy of the GNU General Public License
+//! along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use async_trait::async_trait;
 use std::fs::{self, File};
@@ -216,16 +234,12 @@ impl LaunchStep for ExtractNativesStep {
         LaunchStepResult::Success
     }
     
-    async fn finalize(&mut self, context: &mut LaunchContext) {
-        // Clean up natives directory after game exits
-        let natives_dir = &context.natives_dir;
-        if natives_dir.exists() {
-            if let Err(e) = fs::remove_dir_all(natives_dir) {
-                warn!("Failed to clean up natives directory: {}", e);
-            } else {
-                debug!("Cleaned up natives directory");
-            }
-        }
+    async fn finalize(&mut self, _context: &mut LaunchContext) {
+        // NOTE: We intentionally do NOT clean up natives here.
+        // The finalize method is called immediately after the game process spawns,
+        // but the game is still running and needs these native libraries.
+        // The natives directory is cleaned at the START of extraction instead,
+        // ensuring fresh natives for each launch without breaking running games.
     }
     
     fn progress(&self) -> f32 {

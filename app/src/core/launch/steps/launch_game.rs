@@ -1,6 +1,25 @@
-//! Launch game step - actually launches the Minecraft process
+//! Launch game step.
+//!
+//! Oxide Launcher — A Rust-based Minecraft launcher
+//! Copyright (C) 2025 Oxide Launcher contributors
+//!
+//! This file is part of Oxide Launcher.
+//!
+//! Oxide Launcher is free software: you can redistribute it and/or modify
+//! it under the terms of the GNU General Public License as published by
+//! the Free Software Foundation, either version 3 of the License, or
+//! (at your option) any later version.
+//!
+//! Oxide Launcher is distributed in the hope that it will be useful,
+//! but WITHOUT ANY WARRANTY; without even the implied warranty of
+//! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+//! GNU General Public License for more details.
+//!
+//! You should have received a copy of the GNU General Public License
+//! along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use async_trait::async_trait;
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use tracing::{debug, info, warn};
@@ -12,6 +31,36 @@ use crate::core::modloaders::{ModloaderProfile, LauncherType};
 
 /// The name of the wrapper JAR
 const OXIDE_LAUNCH_JAR: &str = "OxideLaunch.jar";
+
+/// Normalize a path to use the OS-native separator
+/// This is needed because maven_to_path uses forward slashes,
+/// but Java on Windows may not handle mixed path separators correctly
+fn normalize_path(path: &PathBuf) -> String {
+    // Use canonicalize if possible, otherwise just convert to string
+    // canonicalize will normalize the path and resolve symlinks
+    if let Ok(canonical) = path.canonicalize() {
+        let path_str = canonical.to_string_lossy().to_string();
+        // On Windows, canonicalize adds \\?\ prefix which Java doesn't understand
+        // Strip it if present
+        #[cfg(windows)]
+        {
+            if let Some(stripped) = path_str.strip_prefix(r"\\?\") {
+                return stripped.to_string();
+            }
+        }
+        path_str
+    } else {
+        // Path doesn't exist or can't be canonicalized, just replace slashes on Windows
+        #[cfg(windows)]
+        {
+            path.to_string_lossy().replace('/', "\\")
+        }
+        #[cfg(not(windows))]
+        {
+            path.to_string_lossy().to_string()
+        }
+    }
+}
 
 /// Step that launches the actual game process
 pub struct LaunchGameStep {
@@ -149,6 +198,25 @@ impl LaunchGameStep {
         }
     }
 
+    /// Check if a library is natives-only (has no main JAR, only native libraries)
+    /// These libraries should be skipped when building the classpath
+    fn is_natives_only_library(&self, name: &str) -> bool {
+        // Parse the library name to get the artifact
+        // Format: group:artifact:version or group:artifact:version:classifier
+        let parts: Vec<&str> = name.split(':').collect();
+        if parts.len() < 3 {
+            return false;
+        }
+        
+        let artifact = parts[1];
+        
+        // Known natives-only libraries that don't have a main JAR
+        // These are platform-specific native library containers
+        artifact.ends_with("-platform") 
+            || artifact == "twitch-platform" 
+            || artifact == "twitch-external-platform"
+    }
+
     /// Build the classpath including modloader libraries
     fn build_full_classpath(
         &self,
@@ -164,15 +232,24 @@ impl LaunchGameStep {
             tracing::debug!("Adding {} modloader libraries to classpath", profile.libraries.len());
             let mut found_count = 0;
             let mut missing_count = 0;
+            let mut skipped_natives_only = 0;
             
             for lib in &profile.libraries {
                 if !lib.applies_to_current_os() {
                     tracing::trace!("Skipping library {} (not for current OS)", lib.name);
                     continue;
                 }
+                
+                // Skip natives-only libraries (they have no main JAR to add to classpath)
+                if self.is_natives_only_library(&lib.name) {
+                    tracing::trace!("Skipping natives-only library: {}", lib.name);
+                    skipped_natives_only += 1;
+                    continue;
+                }
+                
                 let lib_path = context.libraries_dir.join(lib.get_path());
                 if lib_path.exists() {
-                    paths.push(lib_path.to_string_lossy().to_string());
+                    paths.push(normalize_path(&lib_path));
                     found_count += 1;
                 } else {
                     tracing::warn!("Modloader library not found: {} (expected at {:?})", lib.name, lib_path);
@@ -180,6 +257,9 @@ impl LaunchGameStep {
                 }
             }
             
+            if skipped_natives_only > 0 {
+                tracing::debug!("Skipped {} natives-only libraries from classpath", skipped_natives_only);
+            }
             tracing::debug!("Modloader libraries: {} found, {} missing", found_count, missing_count);
             
             if missing_count > 0 {
@@ -645,20 +725,36 @@ impl LaunchStep for LaunchGameStep {
         };
         
         // On Windows, prefer javaw.exe over java.exe to avoid console window
+        // UNLESS the user has explicitly set use_java_console or has a custom java path
         #[cfg(target_os = "windows")]
         let program = {
-            let program_path = std::path::Path::new(&program);
-            if program_path.file_name().map(|f| f.to_string_lossy().to_lowercase()) == Some("java.exe".into()) {
-                // Try to use javaw.exe instead
-                let javaw_path = program_path.with_file_name("javaw.exe");
-                if javaw_path.exists() {
-                    info!("Using javaw.exe instead of java.exe to avoid console window");
-                    javaw_path.to_string_lossy().to_string()
+            let use_java_console = context.instance.settings.use_java_console
+                || context.config.debug.force_java_console;
+            let has_custom_java_path = context.instance.settings.java_path.is_some();
+            
+            // Only convert to javaw.exe if user hasn't requested console output
+            // and hasn't specified a custom java path (respect their choice!)
+            if use_java_console || has_custom_java_path {
+                if use_java_console {
+                    info!("Using java.exe (console mode enabled for debugging)");
+                } else {
+                    info!("Using specified Java path as-is (respecting custom path)");
+                }
+                program
+            } else {
+                let program_path = std::path::Path::new(&program);
+                if program_path.file_name().map(|f| f.to_string_lossy().to_lowercase()) == Some("java.exe".into()) {
+                    // Try to use javaw.exe instead
+                    let javaw_path = program_path.with_file_name("javaw.exe");
+                    if javaw_path.exists() {
+                        info!("Using javaw.exe instead of java.exe to avoid console window");
+                        javaw_path.to_string_lossy().to_string()
+                    } else {
+                        program
+                    }
                 } else {
                     program
                 }
-            } else {
-                program
             }
         };
         
@@ -667,6 +763,24 @@ impl LaunchStep for LaunchGameStep {
         
         // Log launch command (debug)
         debug!("Launch command: {} {}", program, final_args.join(" "));
+        
+        // If log_launch_command is enabled, write the full command to a file
+        if context.instance.settings.log_launch_command || context.config.debug.log_launch_commands {
+            let log_path = context.instance.game_dir().join("launch_command.log");
+            let log_content = format!(
+                "Launch Command Log\n==================\nTimestamp: {}\n\nProgram: {}\n\nArguments:\n{}\n\nFull Command:\n{} {}",
+                chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                program,
+                final_args.iter().enumerate().map(|(i, arg)| format!("  [{}] {}", i, arg)).collect::<Vec<_>>().join("\n"),
+                program,
+                final_args.join(" ")
+            );
+            if let Err(e) = std::fs::write(&log_path, log_content) {
+                warn!("Failed to write launch command log: {}", e);
+            } else {
+                info!("Launch command logged to: {:?}", log_path);
+            }
+        }
         
         // Launch the game
         self.status = Some("Starting Minecraft...".to_string());
@@ -686,11 +800,21 @@ impl LaunchStep for LaunchGameStep {
         
         // On Windows, use CREATE_NO_WINDOW to prevent console window.
         // Note: This works with javaw.exe. If using java.exe, a console may still appear.
+        // Can be disabled via debug settings for troubleshooting.
         #[cfg(windows)]
         {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x08000000;
-            command.creation_flags(CREATE_NO_WINDOW);
+            let disable_no_window = context.instance.settings.disable_create_no_window
+                || context.config.debug.disable_create_no_window
+                || context.instance.settings.use_java_console
+                || context.config.debug.force_java_console;
+            
+            if !disable_no_window {
+                use std::os::windows::process::CommandExt;
+                const CREATE_NO_WINDOW: u32 = 0x08000000;
+                command.creation_flags(CREATE_NO_WINDOW);
+            } else {
+                info!("CREATE_NO_WINDOW flag disabled (console window will be visible)");
+            }
         }
         
         let child = match command.spawn() {

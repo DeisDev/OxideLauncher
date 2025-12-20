@@ -1,16 +1,22 @@
-//! Forge version API client and installer
+//! Forge version API client and installer.
 //!
-//! Forge uses a more complex installation process that involves:
-//! 1. Downloading the installer JAR
-//! 2. Extracting the version JSON from the installer
-//! 3. Running processors (for newer Forge versions)
-//! 4. Downloading libraries
+//! Oxide Launcher — A Rust-based Minecraft launcher
+//! Copyright (C) 2025 Oxide Launcher contributors
 //!
-//! Modern Forge (1.13+) uses the cpw.mods.bootstraplauncher.BootstrapLauncher main class
-//! and has a separate version.json file in the installer.
+//! This file is part of Oxide Launcher.
 //!
-//! Legacy Forge (<1.13) uses net.minecraft.launchwrapper.Launch as the main class with
-//! FML tweakers, and stores version info in install_profile.json under "versionInfo".
+//! Oxide Launcher is free software: you can redistribute it and/or modify
+//! it under the terms of the GNU General Public License as published by
+//! the Free Software Foundation, either version 3 of the License, or
+//! (at your option) any later version.
+//!
+//! Oxide Launcher is distributed in the hope that it will be useful,
+//! but WITHOUT ANY WARRANTY; without even the implied warranty of
+//! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+//! GNU General Public License for more details.
+//!
+//! You should have received a copy of the GNU General Public License
+//! along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use std::path::PathBuf;
 use std::io::Read;

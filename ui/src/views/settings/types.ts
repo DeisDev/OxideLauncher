@@ -1,3 +1,23 @@
+// TypeScript type definitions for the settings system
+//
+// Oxide Launcher — A Rust-based Minecraft launcher
+// Copyright (C) 2025 Oxide Launcher contributors
+//
+// This file is part of Oxide Launcher.
+//
+// Oxide Launcher is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Oxide Launcher is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
 /**
  * Settings types for the modular settings system
  */
@@ -57,6 +77,7 @@ export interface Config {
   memory: MemoryConfig;
   logging: LoggingConfig;
   api_keys: ApiKeys;
+  debug: DebugConfig;
 }
 
 export interface JavaConfig {
@@ -130,6 +151,15 @@ export interface ApiKeys {
   msa_client_id: string | null;
   curseforge_api_key: string | null;
   modrinth_api_token: string | null;
+}
+
+export interface DebugConfig {
+  force_java_console: boolean;
+  disable_create_no_window: boolean;
+  log_launch_commands: boolean;
+  verbose_logging: boolean;
+  keep_natives_after_launch: boolean;
+  pause_before_launch: boolean;
 }
 
 // Settings context type

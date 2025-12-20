@@ -1,8 +1,50 @@
-//! Library management for Minecraft
+//! Minecraft library resolution and classpath building.
+//!
+//! Oxide Launcher — A Rust-based Minecraft launcher
+//! Copyright (C) 2025 Oxide Launcher contributors
+//!
+//! This file is part of Oxide Launcher.
+//!
+//! Oxide Launcher is free software: you can redistribute it and/or modify
+//! it under the terms of the GNU General Public License as published by
+//! the Free Software Foundation, either version 3 of the License, or
+//! (at your option) any later version.
+//!
+//! Oxide Launcher is distributed in the hope that it will be useful,
+//! but WITHOUT ANY WARRANTY; without even the implied warranty of
+//! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+//! GNU General Public License for more details.
+//!
+//! You should have received a copy of the GNU General Public License
+//! along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use std::path::PathBuf;
 use crate::core::minecraft::version::{Library, VersionData};
 use tracing::debug;
+
+/// Normalize a path to use OS-native separators
+fn normalize_path(path: &PathBuf) -> String {
+    if let Ok(canonical) = path.canonicalize() {
+        let path_str = canonical.to_string_lossy().to_string();
+        // On Windows, canonicalize adds \\?\ prefix which Java doesn't understand
+        #[cfg(windows)]
+        {
+            if let Some(stripped) = path_str.strip_prefix(r"\\?\") {
+                return stripped.to_string();
+            }
+        }
+        path_str
+    } else {
+        #[cfg(windows)]
+        {
+            path.to_string_lossy().replace('/', "\\")
+        }
+        #[cfg(not(windows))]
+        {
+            path.to_string_lossy().to_string()
+        }
+    }
+}
 
 /// Get all libraries needed for a version
 pub fn get_required_libraries(version: &VersionData) -> Vec<&Library> {
@@ -34,7 +76,7 @@ pub fn build_classpath(
             };
             
             if path.exists() {
-                Some(path.to_string_lossy().to_string())
+                Some(normalize_path(&path))
             } else {
                 None
             }
@@ -42,7 +84,7 @@ pub fn build_classpath(
         .collect();
     
     // Add client jar at the end
-    paths.push(client_jar.to_string_lossy().to_string());
+    paths.push(normalize_path(client_jar));
     
     paths.join(separator)
 }

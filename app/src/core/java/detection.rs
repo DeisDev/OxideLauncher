@@ -1,6 +1,22 @@
-//! Java detection across different operating systems
+//! Java installation detection across different operating systems.
 //!
-//! Similar to Prism Launcher's JavaUtils.cpp FindJavaPaths()
+//! Oxide Launcher — A Rust-based Minecraft launcher
+//! Copyright (C) 2025 Oxide Launcher contributors
+//!
+//! This file is part of Oxide Launcher.
+//!
+//! Oxide Launcher is free software: you can redistribute it and/or modify
+//! it under the terms of the GNU General Public License as published by
+//! the Free Software Foundation, either version 3 of the License, or
+//! (at your option) any later version.
+//!
+//! Oxide Launcher is distributed in the hope that it will be useful,
+//! but WITHOUT ANY WARRANTY; without even the implied warranty of
+//! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+//! GNU General Public License for more details.
+//!
+//! You should have received a copy of the GNU General Public License
+//! along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use std::path::PathBuf;
 use std::collections::HashSet;
@@ -58,13 +74,92 @@ pub fn detect_java_installations() -> Vec<JavaInstallation> {
     installations
 }
 
-/// Find a Java installation that meets the version requirement
+/// Find the best Java installation that meets the version requirement
+/// 
+/// Selection priority:
+/// 1. Exact major version match (prefer managed installations)
+/// 2. Compatible higher version (within reasonable range)
+/// 3. 64-bit over 32-bit
+/// 4. Managed installations over system-installed
 pub fn find_java_for_version(required_major: u32) -> Option<JavaInstallation> {
     let installations = detect_java_installations();
     
-    installations
+    if installations.is_empty() {
+        return None;
+    }
+    
+    // Get compatible version range based on Minecraft requirements
+    let (min_version, max_version) = get_compatible_java_range(required_major);
+    
+    // Filter to compatible installations
+    let mut compatible: Vec<_> = installations
         .into_iter()
-        .find(|java| java.meets_requirement(required_major))
+        .filter(|java| {
+            let major = java.version.major;
+            major >= min_version && major <= max_version
+        })
+        .collect();
+    
+    if compatible.is_empty() {
+        return None;
+    }
+    
+    // Score and sort installations
+    compatible.sort_by(|a, b| {
+        let score_a = score_java_installation(a, required_major);
+        let score_b = score_java_installation(b, required_major);
+        score_b.cmp(&score_a) // Higher score first
+    });
+    
+    compatible.into_iter().next()
+}
+
+/// Get the compatible Java version range for a required version
+fn get_compatible_java_range(required_major: u32) -> (u32, u32) {
+    match required_major {
+        8 => (8, 8), // Minecraft < 1.17 strictly needs Java 8
+        16 => (16, 17), // 1.17 snapshots can use 16 or 17
+        17 => (17, 21), // 1.18-1.20.4 works with 17-21
+        21 => (21, 25), // 1.21+ requires 21+
+        _ => (required_major, required_major + 4), // Default: allow 4 versions higher
+    }
+}
+
+/// Score a Java installation for selection priority
+/// Higher score = better match
+fn score_java_installation(java: &JavaInstallation, required_major: u32) -> i32 {
+    let mut score = 0;
+    
+    // Exact version match gets highest priority
+    if java.version.major == required_major {
+        score += 1000;
+    } else {
+        // Penalty for version difference (prefer closer versions)
+        let diff = (java.version.major as i32 - required_major as i32).abs();
+        score += 500 - (diff * 50);
+    }
+    
+    // Prefer 64-bit installations
+    if java.arch.is_64bit() {
+        score += 200;
+    }
+    
+    // Prefer managed installations (launcher-installed Java)
+    if java.is_managed {
+        score += 150;
+    }
+    
+    // Prefer native architecture
+    if java.arch == JavaArch::current() {
+        score += 100;
+    }
+    
+    // Small bonus for recommended installations
+    if java.recommended {
+        score += 50;
+    }
+    
+    score
 }
 
 /// Find the best Java for a Minecraft version

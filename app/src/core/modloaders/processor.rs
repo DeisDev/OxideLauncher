@@ -1,8 +1,22 @@
-//! Forge/NeoForge processor execution
+//! Forge/NeoForge processor execution.
 //!
-//! Modern Forge and NeoForge versions require running "processors" that patch
-//! the vanilla Minecraft client JAR to work with the modloader. These processors
-//! are Java programs bundled in the installer JAR.
+//! Oxide Launcher — A Rust-based Minecraft launcher
+//! Copyright (C) 2025 Oxide Launcher contributors
+//!
+//! This file is part of Oxide Launcher.
+//!
+//! Oxide Launcher is free software: you can redistribute it and/or modify
+//! it under the terms of the GNU General Public License as published by
+//! the Free Software Foundation, either version 3 of the License, or
+//! (at your option) any later version.
+//!
+//! Oxide Launcher is distributed in the hope that it will be useful,
+//! but WITHOUT ANY WARRANTY; without even the implied warranty of
+//! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+//! GNU General Public License for more details.
+//!
+//! You should have received a copy of the GNU General Public License
+//! along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -342,6 +356,9 @@ pub fn extract_installer_libraries(
 /// at the root of the installer (e.g., "forge-1.12.2-14.23.0.2486-universal.jar").
 /// This needs to be extracted to the libraries directory since it's not available
 /// for direct download from Maven.
+/// 
+/// The JAR is saved with the "-universal" classifier suffix to match the Maven coordinate
+/// that will be in the version profile (e.g., net.minecraftforge:forge:1.12.2-14.23.5.2860:universal)
 pub fn extract_forge_universal_jar(
     installer_jar: &Path,
     minecraft_version: &str,
@@ -352,7 +369,7 @@ pub fn extract_forge_universal_jar(
     let mut archive = zip::ZipArchive::new(file)?;
     
     // Look for universal JAR patterns:
-    // - forge-{mc}-{forge}-universal.jar
+    // - forge-{mc}-{forge}-universal.jar (standard legacy Forge)
     // - forge-{mc}-{forge}.jar (some older versions)
     let universal_patterns = [
         format!("forge-{}-{}-universal.jar", minecraft_version, forge_version),
@@ -365,12 +382,22 @@ pub fn extract_forge_universal_jar(
         match archive.by_name(pattern) {
             Ok(mut zip_file) => {
                 // Determine the destination path in libraries
-                // Format: net/minecraftforge/forge/{mc}-{forge}/forge-{mc}-{forge}.jar
+                // Format: net/minecraftforge/forge/{mc}-{forge}/forge-{mc}-{forge}-universal.jar
+                // NOTE: We MUST include the "-universal" classifier suffix because that's how
+                // the Maven coordinate in the version profile references it:
+                //   net.minecraftforge:forge:1.12.2-14.23.5.2860:universal
+                // converts to:
+                //   net/minecraftforge/forge/1.12.2-14.23.5.2860/forge-1.12.2-14.23.5.2860-universal.jar
                 let full_version = format!("{}-{}", minecraft_version, forge_version);
-                let dest_path = libraries_dir
+                let dest_dir = libraries_dir
                     .join("net/minecraftforge/forge")
-                    .join(&full_version)
-                    .join(format!("forge-{}.jar", full_version));
+                    .join(&full_version);
+                
+                // Extract with the universal classifier to match maven_to_path output
+                let dest_path = dest_dir.join(format!("forge-{}-universal.jar", full_version));
+                
+                // Also create a copy without the classifier for compatibility with some version profiles
+                let dest_path_no_classifier = dest_dir.join(format!("forge-{}.jar", full_version));
                 
                 if dest_path.exists() {
                     info!("Universal JAR already exists at {:?}", dest_path);
@@ -381,10 +408,20 @@ pub fn extract_forge_universal_jar(
                     std::fs::create_dir_all(parent)?;
                 }
                 
-                let mut output = std::fs::File::create(&dest_path)?;
-                std::io::copy(&mut zip_file, &mut output)?;
+                // Read the JAR data once
+                let mut jar_data = Vec::new();
+                std::io::Read::read_to_end(&mut zip_file, &mut jar_data)?;
                 
+                // Write the primary file (with universal classifier)
+                std::fs::write(&dest_path, &jar_data)?;
                 info!("Extracted universal JAR from {} to {:?}", pattern, dest_path);
+                
+                // Write the secondary file (without classifier) if it doesn't exist
+                if !dest_path_no_classifier.exists() {
+                    std::fs::write(&dest_path_no_classifier, &jar_data)?;
+                    debug!("Also copied to {:?} for compatibility", dest_path_no_classifier);
+                }
+                
                 return Ok(true);
             }
             Err(_) => continue,

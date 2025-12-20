@@ -1,6 +1,26 @@
-import { useState, useEffect, useCallback } from "react";
+// Instance settings tab for Java, memory, and per-instance configuration
+//
+// Oxide Launcher — A Rust-based Minecraft launcher
+// Copyright (C) 2025 Oxide Launcher contributors
+//
+// This file is part of Oxide Launcher.
+//
+// Oxide Launcher is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Oxide Launcher is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { RefreshCw, Download, AlertCircle, Check } from "lucide-react";
+import { RefreshCw, Download, AlertCircle, Check, AlertTriangle, Sparkles, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,17 +50,19 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
-import type { InstanceInfo, InstanceSettings, JavaInfo, JavaDownloadInfo } from "../types";
+import type { InstanceInfo, InstanceSettings, JavaInfo } from "../types";
+
+// Java compatibility check result from backend
+interface JavaCompatibilityResult {
+  compatible: boolean;
+  java_major: number;
+  required_major: number;
+  min_compatible: number;
+  max_compatible: number;
+  message: string;
+}
 
 interface SettingsTabProps {
   instanceId: string;
@@ -57,53 +79,74 @@ export function SettingsTab({ instanceId, instance }: SettingsTabProps) {
     window_width: 854,
     window_height: 480,
     start_maximized: false,
+    fullscreen: false,
     console_mode: "on_error",
     pre_launch_hook: null,
     post_exit_hook: null,
     enable_analytics: false,
     enable_logging: true,
     game_dir_override: null,
+    skip_java_compatibility_check: false,
+    wrapper_command: null,
+    // Debug settings
+    use_java_console: false,
+    disable_create_no_window: false,
+    log_launch_command: false,
   });
 
   const [detectedJavas, setDetectedJavas] = useState<JavaInfo[]>([]);
-  const [downloadableJavas, setDownloadableJavas] = useState<JavaDownloadInfo[]>([]);
+  const [javaCompatibility, setJavaCompatibility] = useState<Map<string, JavaCompatibilityResult>>(new Map());
   const [detectingJava, setDetectingJava] = useState(false);
-  const [downloadingJava, setDownloadingJava] = useState<string | null>(null);
-  const [loadingDownloadable, setLoadingDownloadable] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [hasChanges, setHasChanges] = useState(false);
-  const [originalSettings, setOriginalSettings] = useState<InstanceSettings | null>(null);
+  const [downloadingJava, setDownloadingJava] = useState<number | null>(null);
+  const [findingBestJava, setFindingBestJava] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+  
+  // Debounce timer ref
+  const saveTimeoutRef = useRef<number | null>(null);
 
+  // Load settings and detect javas on mount
   useEffect(() => {
     loadSettings();
     detectJavas();
+  }, [instanceId]);
+
+  // Check compatibility whenever detected javas or minecraft version changes
+  useEffect(() => {
+    if (detectedJavas.length > 0) {
+      checkAllJavaCompatibility();
+    }
+  }, [detectedJavas, instance.minecraft_version]);
+
+  // Debounced auto-save
+  const saveSettings = useCallback(async (newSettings: InstanceSettings) => {
+    if (saveTimeoutRef.current) {
+      window.clearTimeout(saveTimeoutRef.current);
+    }
+
+    setSaveStatus("saving");
+    
+    saveTimeoutRef.current = window.setTimeout(async () => {
+      try {
+        await invoke("update_instance_settings", {
+          instanceId,
+          settings: newSettings,
+        });
+        setSaveStatus("saved");
+        // Reset to idle after showing "saved" briefly
+        setTimeout(() => setSaveStatus("idle"), 1500);
+      } catch (error) {
+        console.error("Failed to save settings:", error);
+        setSaveStatus("idle");
+      }
+    }, 300); // 300ms debounce
   }, [instanceId]);
 
   const loadSettings = async () => {
     try {
       const loadedSettings = await invoke<InstanceSettings>("get_instance_settings", { instanceId });
       setSettings(loadedSettings);
-      setOriginalSettings(loadedSettings);
-      setHasChanges(false);
     } catch (error) {
       console.error("Failed to load instance settings:", error);
-    }
-  };
-
-  const saveSettings = async () => {
-    setSaving(true);
-    try {
-      await invoke("update_instance_settings", {
-        instanceId,
-        settings,
-      });
-      setOriginalSettings(settings);
-      setHasChanges(false);
-    } catch (error) {
-      console.error("Failed to save settings:", error);
-      alert("Failed to save settings: " + error);
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -113,16 +156,15 @@ export function SettingsTab({ instanceId, instance }: SettingsTabProps) {
   ) => {
     setSettings(prev => {
       const updated = { ...prev, [key]: value };
-      setHasChanges(JSON.stringify(updated) !== JSON.stringify(originalSettings));
+      saveSettings(updated);
       return updated;
     });
-  }, [originalSettings]);
+  }, [saveSettings]);
 
   const detectJavas = async () => {
     setDetectingJava(true);
     try {
       const javas = await invoke<JavaInfo[]>("detect_java");
-      // Map the backend response to the expected JavaInfo format
       const mappedJavas = javas.map((j: any) => ({
         path: j.path,
         version: j.version,
@@ -139,44 +181,63 @@ export function SettingsTab({ instanceId, instance }: SettingsTabProps) {
     }
   };
 
-  const loadDownloadableJavas = async () => {
-    setLoadingDownloadable(true);
+  const checkAllJavaCompatibility = async () => {
+    const compatMap = new Map<string, JavaCompatibilityResult>();
+    
+    for (const java of detectedJavas) {
+      try {
+        const result = await invoke<JavaCompatibilityResult>("check_java_compatibility", {
+          javaMajorVersion: java.major_version,
+          minecraftVersion: instance.minecraft_version,
+        });
+        compatMap.set(java.path, result);
+      } catch (error) {
+        console.error(`Failed to check compatibility for ${java.path}:`, error);
+      }
+    }
+    
+    setJavaCompatibility(compatMap);
+  };
+
+  const findBestJava = async (autoDownload: boolean = false) => {
+    setFindingBestJava(true);
     try {
-      // Use fetch_available_java_versions command
-      const versions = await invoke<{ major: number; name: string; is_lts: boolean }[]>("fetch_available_java_versions");
-      // Map to JavaDownloadInfo format
-      const javas: JavaDownloadInfo[] = versions.map(v => ({
-        vendor: "Eclipse Temurin",
-        version: v.major.toString(),
-        architecture: "x64",
-        url: "", // URL is handled by backend
-      }));
-      setDownloadableJavas(javas);
+      const result = await invoke<{ path: string } | null>("find_best_java_for_instance", {
+        minecraftVersion: instance.minecraft_version,
+        autoDownload,
+      });
+      
+      if (result) {
+        updateSetting("java_path", result.path);
+        await detectJavas();
+      } else if (!autoDownload) {
+        // No compatible Java found, prompt to download
+        const requiredJava = getRequiredJavaVersion();
+        await downloadJavaVersion(requiredJava);
+      }
     } catch (error) {
-      console.error("Failed to load downloadable javas:", error);
+      console.error("Failed to find best Java:", error);
     } finally {
-      setLoadingDownloadable(false);
+      setFindingBestJava(false);
     }
   };
 
-  const downloadJava = async (java: JavaDownloadInfo) => {
-    setDownloadingJava(java.version);
+  const downloadJavaVersion = async (majorVersion: number) => {
+    setDownloadingJava(majorVersion);
     try {
-      // Use download_java command with majorVersion parameter
       const result = await invoke<{ path: string }>("download_java", {
-        majorVersion: parseInt(java.version),
+        majorVersion,
       });
       updateSetting("java_path", result.path);
       await detectJavas();
     } catch (error) {
       console.error("Failed to download Java:", error);
-      alert("Failed to download Java: " + error);
     } finally {
       setDownloadingJava(null);
     }
   };
 
-  const getRecommendedJava = (): number => {
+  const getRequiredJavaVersion = (): number => {
     const mcVersion = instance.minecraft_version;
     const parts = mcVersion.split('.').map(Number);
     if (parts[1] >= 21) return 21;
@@ -185,224 +246,308 @@ export function SettingsTab({ instanceId, instance }: SettingsTabProps) {
     return 8;
   };
 
-  const recommendedJava = getRecommendedJava();
+  // Get current Java selection status
+  const getCurrentJavaStatus = (): { isAuto: boolean; selectedJava: JavaInfo | null; compatibility: JavaCompatibilityResult | null } => {
+    const isAuto = settings.java_path === null;
+    const selectedJava = isAuto ? null : detectedJavas.find(j => j.path === settings.java_path) || null;
+    const compatibility = selectedJava ? javaCompatibility.get(selectedJava.path) || null : null;
+    
+    return { isAuto, selectedJava, compatibility };
+  };
+
+  // Check if any compatible Java exists
+  const hasCompatibleJava = (): boolean => {
+    return Array.from(javaCompatibility.values()).some(c => c.compatible);
+  };
+
+  const requiredJava = getRequiredJavaVersion();
+  const { isAuto, selectedJava, compatibility } = getCurrentJavaStatus();
+  const hasAnyCompatible = hasCompatibleJava();
 
   return (
     <ScrollArea className="h-full">
       <div className="space-y-6 pr-4 pb-4">
-        <Tabs defaultValue="general" className="w-full">
-          <TabsList className="grid w-full grid-cols-3 sm:grid-cols-5 mb-4">
-            <TabsTrigger value="general">General</TabsTrigger>
+        {/* Auto-save indicator */}
+        {saveStatus !== "idle" && (
+          <div className="fixed top-4 right-4 z-50">
+            <Badge variant={saveStatus === "saving" ? "secondary" : "default"} className="gap-2">
+              {saveStatus === "saving" ? (
+                <>
+                  <RefreshCw className="h-3 w-3 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Check className="h-3 w-3" />
+                  Saved
+                </>
+              )}
+            </Badge>
+          </div>
+        )}
+
+        <Tabs defaultValue="java" className="w-full">
+          <TabsList className="grid w-full grid-cols-3 sm:grid-cols-6 mb-4">
             <TabsTrigger value="java">Java</TabsTrigger>
             <TabsTrigger value="memory">Memory</TabsTrigger>
             <TabsTrigger value="game">Game</TabsTrigger>
             <TabsTrigger value="launch">Launch</TabsTrigger>
+            <TabsTrigger value="advanced">Advanced</TabsTrigger>
+            <TabsTrigger value="debug">Debug</TabsTrigger>
           </TabsList>
-
-          {/* General Tab */}
-          <TabsContent value="general" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Instance Information</CardTitle>
-                <CardDescription>Basic settings for this instance</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid gap-4">
-                  <div className="grid gap-2">
-                    <Label>Instance Name</Label>
-                    <p className="text-sm text-muted-foreground">{instance.name}</p>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label>Minecraft Version</Label>
-                    <p className="text-sm text-muted-foreground">{instance.minecraft_version}</p>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label>Mod Loader</Label>
-                    <p className="text-sm text-muted-foreground">
-                      {instance.mod_loader}
-                      {instance.mod_loader_version && ` (${instance.mod_loader_version})`}
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Data Collection</CardTitle>
-                <CardDescription>Privacy settings</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label>Enable Analytics</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Help improve the launcher by sending anonymous usage data
-                    </p>
-                  </div>
-                  <Switch
-                    checked={settings.enable_analytics}
-                    onCheckedChange={(v) => updateSetting("enable_analytics", v)}
-                  />
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label>Enable Logging</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Save debug logs for troubleshooting
-                    </p>
-                  </div>
-                  <Switch
-                    checked={settings.enable_logging}
-                    onCheckedChange={(v) => updateSetting("enable_logging", v)}
-                  />
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
 
           {/* Java Tab */}
           <TabsContent value="java" className="space-y-4">
+            {/* Compatibility Alert - Always visible when incompatible */}
+            {!isAuto && selectedJava && compatibility && !compatibility.compatible && (
+              <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle>Java Incompatibility Detected</AlertTitle>
+                <AlertDescription>
+                  {compatibility.message}
+                  <div className="mt-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => updateSetting("java_path", null)}
+                    >
+                      Switch to Auto-detect
+                    </Button>
+                  </div>
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {/* No Compatible Java Alert */}
+            {!hasAnyCompatible && detectedJavas.length > 0 && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>No Compatible Java Found</AlertTitle>
+                <AlertDescription>
+                  <p className="mb-2">
+                    None of your installed Java versions are compatible with Minecraft {instance.minecraft_version}.
+                    You need Java {requiredJava} or compatible version.
+                  </p>
+                  <Button
+                    size="sm"
+                    onClick={() => downloadJavaVersion(requiredJava)}
+                    disabled={downloadingJava !== null}
+                  >
+                    {downloadingJava === requiredJava ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                        Downloading Java {requiredJava}...
+                      </>
+                    ) : (
+                      <>
+                        <Download className="h-4 w-4 mr-2" />
+                        Download Java {requiredJava}
+                      </>
+                    )}
+                  </Button>
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {/* Requirements Info */}
             <Alert>
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>
-                Minecraft {instance.minecraft_version} requires Java {recommendedJava} or newer.
+                Minecraft {instance.minecraft_version} requires <strong>Java {requiredJava}</strong> or compatible version.
               </AlertDescription>
             </Alert>
 
+            {/* Java Selection Card */}
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <div>
-                  <CardTitle>Detected Java Installations</CardTitle>
-                  <CardDescription>Select a Java installation to use</CardDescription>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={detectJavas}
-                  disabled={detectingJava}
-                >
-                  <RefreshCw className={cn("h-4 w-4 mr-2", detectingJava && "animate-spin")} />
-                  Detect
-                </Button>
+              <CardHeader>
+                <CardTitle>Java Selection</CardTitle>
+                <CardDescription>Choose which Java installation to use for this instance</CardDescription>
               </CardHeader>
-              <CardContent>
-                {detectingJava ? (
-                  <div className="flex items-center justify-center py-8">
-                    <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
-                    <span className="ml-2 text-muted-foreground">Detecting Java...</span>
+              <CardContent className="space-y-4">
+                {/* Auto-detect Option */}
+                <div
+                  className={cn(
+                    "flex items-center justify-between p-4 rounded-lg border cursor-pointer transition-colors",
+                    isAuto ? "border-primary bg-primary/5" : "hover:bg-muted/50"
+                  )}
+                  onClick={() => updateSetting("java_path", null)}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={cn(
+                      "w-4 h-4 rounded-full border-2 flex items-center justify-center",
+                      isAuto ? "border-primary" : "border-muted-foreground"
+                    )}>
+                      {isAuto && <div className="w-2 h-2 rounded-full bg-primary" />}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">Auto-detect</span>
+                        <Badge variant="secondary" className="text-xs">
+                          <Sparkles className="h-3 w-3 mr-1" />
+                          Recommended
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        Automatically select the best compatible Java version
+                      </p>
+                    </div>
                   </div>
-                ) : detectedJavas.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-4">
-                    No Java installations detected.
-                  </p>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="w-10"></TableHead>
-                          <TableHead>Version</TableHead>
-                          <TableHead className="hidden sm:table-cell">Vendor</TableHead>
-                          <TableHead className="hidden md:table-cell">Architecture</TableHead>
-                          <TableHead className="hidden lg:table-cell">Path</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {detectedJavas.map((java) => (
-                          <TableRow
+                  {isAuto && <Check className="h-5 w-5 text-primary" />}
+                </div>
+
+                <Separator />
+
+                {/* Detected Java List */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Installed Java Versions</Label>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={detectJavas}
+                      disabled={detectingJava}
+                    >
+                      <RefreshCw className={cn("h-4 w-4 mr-2", detectingJava && "animate-spin")} />
+                      Refresh
+                    </Button>
+                  </div>
+
+                  {detectingJava ? (
+                    <div className="flex items-center justify-center py-8">
+                      <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+                      <span className="ml-2 text-muted-foreground">Detecting Java installations...</span>
+                    </div>
+                  ) : detectedJavas.length === 0 ? (
+                    <div className="text-center py-8 space-y-3">
+                      <p className="text-sm text-muted-foreground">
+                        No Java installations detected on your system.
+                      </p>
+                      <Button
+                        onClick={() => downloadJavaVersion(requiredJava)}
+                        disabled={downloadingJava !== null}
+                      >
+                        {downloadingJava === requiredJava ? (
+                          <>
+                            <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                            Downloading...
+                          </>
+                        ) : (
+                          <>
+                            <Download className="h-4 w-4 mr-2" />
+                            Download Java {requiredJava}
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {detectedJavas.map((java) => {
+                        const compat = javaCompatibility.get(java.path);
+                        const isSelected = settings.java_path === java.path;
+                        
+                        return (
+                          <div
                             key={java.path}
                             className={cn(
-                              "cursor-pointer",
-                              settings.java_path === java.path && "bg-muted"
+                              "flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-colors",
+                              isSelected ? "border-primary bg-primary/5" : "hover:bg-muted/50",
+                              compat && !compat.compatible && "border-destructive/50 bg-destructive/5"
                             )}
                             onClick={() => updateSetting("java_path", java.path)}
                           >
-                            <TableCell>
-                              {settings.java_path === java.path && (
-                                <Check className="h-4 w-4 text-primary" />
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
-                                <span>Java {java.major_version}</span>
-                                {java.major_version >= recommendedJava && (
-                                  <Badge variant="secondary" className="text-xs w-fit">Compatible</Badge>
-                                )}
+                            <div className="flex items-center gap-3">
+                              <div className={cn(
+                                "w-4 h-4 rounded-full border-2 flex items-center justify-center",
+                                isSelected ? "border-primary" : "border-muted-foreground"
+                              )}>
+                                {isSelected && <div className="w-2 h-2 rounded-full bg-primary" />}
                               </div>
-                            </TableCell>
-                            <TableCell className="hidden sm:table-cell">{java.vendor}</TableCell>
-                            <TableCell className="hidden md:table-cell">{java.architecture}</TableCell>
-                            <TableCell className="hidden lg:table-cell text-xs text-muted-foreground max-w-xs truncate">
-                              {java.path}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                )}
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-medium">Java {java.major_version}</span>
+                                  <span className="text-sm text-muted-foreground">({java.version})</span>
+                                  {compat && (
+                                    <Badge 
+                                      variant={compat.compatible ? "secondary" : "destructive"}
+                                      className="text-xs"
+                                    >
+                                      {compat.compatible ? (
+                                        <>
+                                          <Check className="h-3 w-3 mr-1" />
+                                          Compatible
+                                        </>
+                                      ) : (
+                                        <>
+                                          <AlertTriangle className="h-3 w-3 mr-1" />
+                                          Incompatible
+                                        </>
+                                      )}
+                                    </Badge>
+                                  )}
+                                </div>
+                                <p className="text-xs text-muted-foreground truncate">
+                                  {java.vendor} • {java.architecture} • {java.path}
+                                </p>
+                              </div>
+                            </div>
+                            {isSelected && <Check className="h-5 w-5 text-primary flex-shrink-0" />}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </CardContent>
             </Card>
 
+            {/* Quick Actions Card */}
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <div>
-                  <CardTitle>Download Java</CardTitle>
-                  <CardDescription>Download and install Java automatically</CardDescription>
-                </div>
+              <CardHeader>
+                <CardTitle>Quick Actions</CardTitle>
+                <CardDescription>Manage Java for this instance</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
                 <Button
                   variant="outline"
-                  size="sm"
-                  onClick={loadDownloadableJavas}
-                  disabled={loadingDownloadable}
+                  className="w-full justify-start"
+                  onClick={() => findBestJava(false)}
+                  disabled={findingBestJava}
                 >
-                  <RefreshCw className={cn("h-4 w-4 mr-2", loadingDownloadable && "animate-spin")} />
-                  Load Options
+                  {findingBestJava ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                      Finding best Java...
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="h-4 w-4 mr-2" />
+                      Find & Select Best Java
+                    </>
+                  )}
                 </Button>
-              </CardHeader>
-              <CardContent>
-                {downloadableJavas.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-4">
-                    Click "Load Options" to see available Java downloads.
-                  </p>
-                ) : (
-                  <div className="grid gap-2">
-                    {downloadableJavas.map((java) => (
-                      <div
-                        key={`${java.vendor}-${java.version}`}
-                        className="flex items-center justify-between p-3 rounded-md border"
-                      >
-                        <div>
-                          <p className="font-medium">Java {java.version}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {java.vendor} • {java.architecture}
-                          </p>
-                        </div>
-                        <Button
-                          size="sm"
-                          onClick={() => downloadJava(java)}
-                          disabled={downloadingJava === java.version}
-                        >
-                          {downloadingJava === java.version ? (
-                            <>
-                              <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                              Downloading...
-                            </>
-                          ) : (
-                            <>
-                              <Download className="h-4 w-4 mr-2" />
-                              Download
-                            </>
-                          )}
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                
+                <Button
+                  variant="outline"
+                  className="w-full justify-start"
+                  onClick={() => downloadJavaVersion(requiredJava)}
+                  disabled={downloadingJava !== null}
+                >
+                  {downloadingJava === requiredJava ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                      Downloading Java {requiredJava}...
+                    </>
+                  ) : (
+                    <>
+                      <Download className="h-4 w-4 mr-2" />
+                      Download Java {requiredJava} (Recommended)
+                    </>
+                  )}
+                </Button>
               </CardContent>
             </Card>
 
+            {/* Custom Path Card */}
             <Card>
               <CardHeader>
                 <CardTitle>Custom Java Path</CardTitle>
@@ -414,10 +559,10 @@ export function SettingsTab({ instanceId, instance }: SettingsTabProps) {
                   <Input
                     value={settings.java_path || ""}
                     onChange={(e) => updateSetting("java_path", e.target.value || null)}
-                    placeholder="Auto-detect (recommended)"
+                    placeholder="Leave empty for auto-detect"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Leave empty to use auto-detected Java
+                    Use this to specify a Java installation not detected automatically
                   </p>
                 </div>
               </CardContent>
@@ -438,7 +583,7 @@ export function SettingsTab({ instanceId, instance }: SettingsTabProps) {
                   <div className="grid gap-2">
                     <div className="flex items-center justify-between">
                       <Label>Minimum Memory</Label>
-                      <span className="text-sm font-mono">{settings.memory_min_mb} MB</span>
+                      <span className="text-sm font-mono bg-muted px-2 py-1 rounded">{settings.memory_min_mb} MB</span>
                     </div>
                     <Slider
                       value={[settings.memory_min_mb]}
@@ -457,7 +602,7 @@ export function SettingsTab({ instanceId, instance }: SettingsTabProps) {
                   <div className="grid gap-2">
                     <div className="flex items-center justify-between">
                       <Label>Maximum Memory</Label>
-                      <span className="text-sm font-mono">{settings.memory_max_mb} MB</span>
+                      <span className="text-sm font-mono bg-muted px-2 py-1 rounded">{settings.memory_max_mb} MB</span>
                     </div>
                     <Slider
                       value={[settings.memory_max_mb]}
@@ -476,10 +621,8 @@ export function SettingsTab({ instanceId, instance }: SettingsTabProps) {
 
                 <Separator />
 
-                <div className="text-sm text-muted-foreground space-y-1">
-                  <p>
-                    <strong>Recommendations:</strong>
-                  </p>
+                <div className="text-sm text-muted-foreground space-y-2">
+                  <p className="font-medium">Recommendations:</p>
                   <ul className="list-disc list-inside space-y-1 ml-2">
                     <li>Vanilla: 2-4 GB</li>
                     <li>Light modpacks: 4-6 GB</li>
@@ -538,23 +681,9 @@ export function SettingsTab({ instanceId, instance }: SettingsTabProps) {
             <Card>
               <CardHeader>
                 <CardTitle>Game Arguments</CardTitle>
-                <CardDescription>Custom JVM and game arguments</CardDescription>
+                <CardDescription>Custom game arguments passed to Minecraft</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid gap-2">
-                  <Label>JVM Arguments</Label>
-                  <Textarea
-                    value={settings.java_args}
-                    onChange={(e) => updateSetting("java_args", e.target.value)}
-                    placeholder="-XX:+UseG1GC -XX:+UnlockExperimentalVMOptions"
-                    rows={3}
-                    className="font-mono text-sm"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Additional arguments passed to the Java virtual machine
-                  </p>
-                </div>
-
+              <CardContent>
                 <div className="grid gap-2">
                   <Label>Game Arguments</Label>
                   <Textarea
@@ -649,33 +778,206 @@ export function SettingsTab({ instanceId, instance }: SettingsTabProps) {
               </CardContent>
             </Card>
           </TabsContent>
-        </Tabs>
 
-        {/* Save Button */}
-        {hasChanges && (
-          <div className="sticky bottom-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-t pt-4 -mx-4 px-4">
-            <div className="flex items-center justify-end gap-4">
-              <span className="text-sm text-muted-foreground">You have unsaved changes</span>
-              <Button
-                variant="outline"
-                onClick={loadSettings}
-                disabled={saving}
-              >
-                Discard
-              </Button>
-              <Button onClick={saveSettings} disabled={saving}>
-                {saving ? (
-                  <>
-                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  "Save Changes"
-                )}
-              </Button>
-            </div>
-          </div>
-        )}
+          {/* Advanced Tab */}
+          <TabsContent value="advanced" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>JVM Arguments</CardTitle>
+                <CardDescription>Custom Java Virtual Machine arguments</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-2">
+                  <Label>JVM Arguments</Label>
+                  <Textarea
+                    value={settings.java_args}
+                    onChange={(e) => updateSetting("java_args", e.target.value)}
+                    placeholder="-XX:+UseG1GC -XX:+UnlockExperimentalVMOptions"
+                    rows={4}
+                    className="font-mono text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Additional arguments passed to the Java Virtual Machine. Use with caution.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Instance Information</CardTitle>
+                <CardDescription>Read-only instance details</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-4">
+                  <div className="flex justify-between items-center">
+                    <Label className="text-muted-foreground">Instance Name</Label>
+                    <span className="font-medium">{instance.name}</span>
+                  </div>
+                  <Separator />
+                  <div className="flex justify-between items-center">
+                    <Label className="text-muted-foreground">Minecraft Version</Label>
+                    <span className="font-medium">{instance.minecraft_version}</span>
+                  </div>
+                  <Separator />
+                  <div className="flex justify-between items-center">
+                    <Label className="text-muted-foreground">Mod Loader</Label>
+                    <span className="font-medium">
+                      {instance.mod_loader}
+                      {instance.mod_loader_version && ` (${instance.mod_loader_version})`}
+                    </span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Data & Privacy</CardTitle>
+                <CardDescription>Control data collection settings</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Enable Analytics</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Help improve the launcher by sending anonymous usage data
+                    </p>
+                  </div>
+                  <Switch
+                    checked={settings.enable_analytics}
+                    onCheckedChange={(v) => updateSetting("enable_analytics", v)}
+                  />
+                </div>
+                <Separator />
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Enable Logging</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Save debug logs for troubleshooting
+                    </p>
+                  </div>
+                  <Switch
+                    checked={settings.enable_logging}
+                    onCheckedChange={(v) => updateSetting("enable_logging", v)}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Debug Tab */}
+          <TabsContent value="debug" className="space-y-4">
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Debug Mode</AlertTitle>
+              <AlertDescription>
+                These settings are for troubleshooting launch issues. Enable them to see Java console output and diagnose problems like Forge failing to launch.
+              </AlertDescription>
+            </Alert>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Java Console Output</CardTitle>
+                <CardDescription>
+                  Control how Java runs and displays console output (Windows only)
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Use java.exe (Show Console)</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Force use of java.exe instead of javaw.exe to show console output in a separate window. 
+                      Useful for debugging Forge/modloader launch issues.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={settings.use_java_console}
+                    onCheckedChange={(v) => updateSetting("use_java_console", v)}
+                  />
+                </div>
+                <Separator />
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Disable Hidden Window Flag</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Disable the CREATE_NO_WINDOW flag that hides the console. 
+                      Combined with java.exe, this ensures console output is visible.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={settings.disable_create_no_window}
+                    onCheckedChange={(v) => updateSetting("disable_create_no_window", v)}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Launch Diagnostics</CardTitle>
+                <CardDescription>Tools for diagnosing launch problems</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Log Launch Command</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Save the full launch command to a file in the instance directory (launch_command.log). 
+                      Useful for manually testing launches or sharing with support.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={settings.log_launch_command}
+                    onCheckedChange={(v) => updateSetting("log_launch_command", v)}
+                  />
+                </div>
+                <Separator />
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Skip Java Compatibility Check</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Allow launching with incompatible Java versions. Use with caution - 
+                      wrong Java versions may cause crashes.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={settings.skip_java_compatibility_check}
+                    onCheckedChange={(v) => updateSetting("skip_java_compatibility_check", v)}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Quick Debug Preset</CardTitle>
+                <CardDescription>
+                  Enable all debug settings at once for maximum visibility
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => {
+                    updateSetting("use_java_console", true);
+                    updateSetting("disable_create_no_window", true);
+                    updateSetting("log_launch_command", true);
+                  }}
+                >
+                  <AlertTriangle className="h-4 w-4 mr-2" />
+                  Enable All Debug Settings
+                </Button>
+                <p className="text-xs text-muted-foreground mt-2">
+                  This will show the Java console window and log the launch command. 
+                  Remember to disable these after debugging.
+                </p>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
     </ScrollArea>
   );

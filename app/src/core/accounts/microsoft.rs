@@ -1,16 +1,22 @@
-//! Microsoft account authentication
+//! Microsoft account authentication via OAuth device code flow.
 //!
-//! Implements the Microsoft OAuth flow for Minecraft authentication,
-//! similar to Prism Launcher's authentication system.
+//! Oxide Launcher — A Rust-based Minecraft launcher
+//! Copyright (C) 2025 Oxide Launcher contributors
 //!
-//! Flow:
-//! 1. MSA Device Code Flow -> Get device code for user to enter
-//! 2. Poll for MSA token -> MS Access Token + Refresh Token
-//! 3. Xbox Live User Auth -> XBL Token + User Hash (UToken)
-//! 4. XSTS Authorization (Minecraft RP) -> XSTS Token for Minecraft services
-//! 5. Launcher Login -> Minecraft Access Token (Yggdrasil-style)
-//! 6. Entitlements Check -> Verify game ownership
-//! 7. Minecraft Profile -> UUID, username, skin, cape
+//! This file is part of Oxide Launcher.
+//!
+//! Oxide Launcher is free software: you can redistribute it and/or modify
+//! it under the terms of the GNU General Public License as published by
+//! the Free Software Foundation, either version 3 of the License, or
+//! (at your option) any later version.
+//!
+//! Oxide Launcher is distributed in the hope that it will be useful,
+//! but WITHOUT ANY WARRANTY; without even the implied warranty of
+//! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+//! GNU General Public License for more details.
+//!
+//! You should have received a copy of the GNU General Public License
+//! along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use chrono::{Duration, Utc};
 use serde::Deserialize;

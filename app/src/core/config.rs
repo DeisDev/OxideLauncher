@@ -1,4 +1,22 @@
-//! Application configuration management
+//! Application configuration management.
+//!
+//! Oxide Launcher — A Rust-based Minecraft launcher
+//! Copyright (C) 2025 Oxide Launcher contributors
+//!
+//! This file is part of Oxide Launcher.
+//!
+//! Oxide Launcher is free software: you can redistribute it and/or modify
+//! it under the terms of the GNU General Public License as published by
+//! the Free Software Foundation, either version 3 of the License, or
+//! (at your option) any later version.
+//!
+//! Oxide Launcher is distributed in the hope that it will be useful,
+//! but WITHOUT ANY WARRANTY; without even the implied warranty of
+//! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+//! GNU General Public License for more details.
+//!
+//! You should have received a copy of the GNU General Public License
+//! along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -51,6 +69,10 @@ pub struct Config {
     /// API keys and secrets (should be handled securely)
     #[serde(default)]
     pub api_keys: ApiKeys,
+    
+    /// Debug settings for troubleshooting
+    #[serde(default)]
+    pub debug: DebugConfig,
 }
 
 impl Default for Config {
@@ -67,6 +89,7 @@ impl Default for Config {
             memory: MemoryConfig::default(),
             logging: LoggingConfig::default(),
             api_keys: ApiKeys::default(),
+            debug: DebugConfig::default(),
         }
     }
 }
@@ -530,6 +553,47 @@ impl Default for LoggingConfig {
             debug_to_file: false,
             max_file_size_mb: default_log_size(),
             max_files: default_log_files(),
+        }
+    }
+}
+
+/// Debug configuration for troubleshooting launch and runtime issues
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DebugConfig {
+    /// Force use of java.exe instead of javaw.exe globally (shows console output on Windows)
+    #[serde(default)]
+    pub force_java_console: bool,
+    
+    /// Disable CREATE_NO_WINDOW flag globally (allows console window to appear)
+    #[serde(default)]
+    pub disable_create_no_window: bool,
+    
+    /// Log the full launch command to a file in the instance directory
+    #[serde(default)]
+    pub log_launch_commands: bool,
+    
+    /// Enable verbose logging throughout the application
+    #[serde(default)]
+    pub verbose_logging: bool,
+    
+    /// Keep natives directory after launch (don't clean up for debugging)
+    #[serde(default)]
+    pub keep_natives_after_launch: bool,
+    
+    /// Pause before launch (for attaching debuggers)
+    #[serde(default)]
+    pub pause_before_launch: bool,
+}
+
+impl Default for DebugConfig {
+    fn default() -> Self {
+        Self {
+            force_java_console: false,
+            disable_create_no_window: false,
+            log_launch_commands: false,
+            verbose_logging: false,
+            keep_natives_after_launch: false,
+            pause_before_launch: false,
         }
     }
 }

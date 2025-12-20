@@ -1,11 +1,22 @@
-//! RustWiz - Packwiz-compatible type definitions
+//! RustWiz type definitions for packwiz-compatible metadata.
 //!
-//! Native Rust implementation of the packwiz format specification:
-//! - pack.toml: Main pack manifest
-//! - index.toml: File index with hashes
-//! - *.pw.toml: Individual mod/resource metadata files
+//! Oxide Launcher — A Rust-based Minecraft launcher
+//! Copyright (C) 2025 Oxide Launcher contributors
 //!
-//! Compatible with packwiz tools: https://packwiz.infra.link/reference/pack-format/
+//! This file is part of Oxide Launcher.
+//!
+//! Oxide Launcher is free software: you can redistribute it and/or modify
+//! it under the terms of the GNU General Public License as published by
+//! the Free Software Foundation, either version 3 of the License, or
+//! (at your option) any later version.
+//!
+//! Oxide Launcher is distributed in the hope that it will be useful,
+//! but WITHOUT ANY WARRANTY; without even the implied warranty of
+//! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+//! GNU General Public License for more details.
+//!
+//! You should have received a copy of the GNU General Public License
+//! along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use serde::{Deserialize, Serialize};
 

@@ -1,7 +1,22 @@
-//! Modloader installation system
-//! 
-//! This module provides the infrastructure for installing different modloaders
-//! (Fabric, Forge, NeoForge, Quilt, LiteLoader) to Minecraft instances.
+//! Modloader installation system.
+//!
+//! Oxide Launcher — A Rust-based Minecraft launcher
+//! Copyright (C) 2025 Oxide Launcher contributors
+//!
+//! This file is part of Oxide Launcher.
+//!
+//! Oxide Launcher is free software: you can redistribute it and/or modify
+//! it under the terms of the GNU General Public License as published by
+//! the Free Software Foundation, either version 3 of the License, or
+//! (at your option) any later version.
+//!
+//! Oxide Launcher is distributed in the hope that it will be useful,
+//! but WITHOUT ANY WARRANTY; without even the implied warranty of
+//! MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+//! GNU General Public License for more details.
+//!
+//! You should have received a copy of the GNU General Public License
+//! along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -58,6 +73,22 @@ pub trait ModloaderInstaller: Send + Sync {
     fn is_installed(&self, minecraft_version: &str, loader_version: &str, libraries_dir: &PathBuf) -> bool;
 }
 
+/// Check if a library is a natives-only library (has no main JAR)
+/// These are libraries like lwjgl-platform, jinput-platform that only contain native files
+fn is_natives_only_library(name: &str) -> bool {
+    // Parse artifact ID from name (format: group:artifact:version)
+    let parts: Vec<&str> = name.split(':').collect();
+    if parts.len() < 2 {
+        return false;
+    }
+    let artifact = parts[1];
+    
+    // Known natives-only libraries
+    artifact.ends_with("-platform") 
+        || artifact == "twitch-platform" 
+        || artifact == "twitch-external-platform"
+}
+
 /// Resolve the download URL for a library
 fn resolve_library_url(lib: &ModloaderLibrary) -> String {
     let path = lib.get_path();
@@ -84,8 +115,11 @@ fn resolve_library_url(lib: &ModloaderLibrary) -> String {
             } else if lib.name.starts_with("org.ow2.asm") {
                 // ASM libraries - try Maven Central first
                 format!("https://repo1.maven.org/maven2/{}", path)
-            } else if lib.name.starts_with("net.minecraft:") || lib.name.starts_with("lzma:") {
-                // Minecraft libraries - these are hosted on Mojang's server, not Maven Central
+            } else if lib.name.starts_with("net.minecraft:") 
+                || lib.name.starts_with("com.mojang:") 
+                || lib.name.starts_with("lzma:")
+            {
+                // Minecraft/Mojang libraries - these are hosted on Mojang's server, not Maven Central
                 format!("https://libraries.minecraft.net/{}", path)
             } else {
                 // Default to Maven Central
@@ -114,6 +148,14 @@ pub async fn download_modloader_libraries(
     let mut skipped = 0;
     
     for lib in &libraries {
+        // Skip natives-only libraries (they have no main JAR)
+        // These libraries only exist as native classifiers like -natives-windows
+        if is_natives_only_library(&lib.name) {
+            debug!("Skipping natives-only library: {}", lib.name);
+            skipped += 1;
+            continue;
+        }
+        
         let lib_path = libraries_dir.join(lib.get_path());
         
         // Skip if already exists
