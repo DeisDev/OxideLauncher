@@ -58,13 +58,24 @@ public final class TweakerLauncher implements Launcher {
         this.config = config;
     }
     
+    /**
+     * Check if an argument list contains a specific argument flag.
+     */
+    private static boolean containsArg(List<String> args, String argName) {
+        for (String arg : args) {
+            if (arg.equals(argName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
     @Override
     public void launch() throws Throwable {
         // Build arguments for LaunchWrapper
         List<String> launchArgs = new ArrayList<>();
         
-        // Add tweaker classes
-        // These MUST come before other game arguments
+        // Add tweaker classes FIRST - LaunchWrapper requires these before other args
         for (String tweaker : config.getTweakClasses()) {
             launchArgs.add("--tweakClass");
             launchArgs.add(tweaker);
@@ -72,27 +83,24 @@ public final class TweakerLauncher implements Launcher {
         }
         
         // Add game arguments after tweakers
-        for (String arg : config.getGameArgs()) {
+        // These already contain --assetsDir, --gameDir, --width, --height, etc. from Rust
+        List<String> gameArgs = config.getGameArgs();
+        for (String arg : gameArgs) {
             launchArgs.add(arg);
         }
         
-        // Add window dimensions
-        launchArgs.add("--width");
-        launchArgs.add(String.valueOf(config.getWidth()));
-        launchArgs.add("--height");
-        launchArgs.add(String.valueOf(config.getHeight()));
-        
-        // Set game directory if specified
-        if (config.getGameDir() != null && !config.getGameDir().isEmpty()) {
-            launchArgs.add("--gameDir");
-            launchArgs.add(config.getGameDir());
+        // Only add width/height if not already present in game args
+        if (!containsArg(gameArgs, "--width")) {
+            launchArgs.add("--width");
+            launchArgs.add(String.valueOf(config.getWidth()));
+        }
+        if (!containsArg(gameArgs, "--height")) {
+            launchArgs.add("--height");
+            launchArgs.add(String.valueOf(config.getHeight()));
         }
         
-        // Set assets directory if specified
-        if (config.getAssetsDir() != null && !config.getAssetsDir().isEmpty()) {
-            launchArgs.add("--assetsDir");
-            launchArgs.add(config.getAssetsDir());
-        }
+        // Note: --gameDir and --assetsDir are already in gameArgs from the Rust launcher
+        // Do NOT add them again here - LaunchWrapper's jopt-simple doesn't allow duplicates
         
         String[] args = launchArgs.toArray(new String[0]);
         

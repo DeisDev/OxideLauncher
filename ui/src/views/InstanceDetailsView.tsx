@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { useConfig } from "@/hooks/useConfig";
+import type { LogEntry } from "@/types";
 
 // Import modular tab components
 import {
@@ -69,7 +70,7 @@ export function InstanceDetailsView() {
   const lastExitCodeRef = useRef<number | null>(null);
 
   // Log state
-  const [logContent, setLogContent] = useState<string[]>([]);
+  const [logContent, setLogContent] = useState<LogEntry[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [autoScroll, setAutoScroll] = useState(true);
   const [wrapLines, setWrapLines] = useState(false);
@@ -113,7 +114,7 @@ export function InstanceDetailsView() {
         wasRunningRef.current = status.running;
 
         // Fetch logs
-        const logs = await invoke<string[]>("get_instance_logs", {
+        const logs = await invoke<LogEntry[]>("get_instance_logs", {
           instanceId: id,
         });
         if (logs.length > 0) {

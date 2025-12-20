@@ -20,7 +20,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { RefreshCw, Download, AlertCircle, Check, AlertTriangle, Sparkles, Zap } from "lucide-react";
+import { RefreshCw, Download, AlertCircle, Check, AlertTriangle, Sparkles, Zap, HelpCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -50,9 +50,31 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
 import type { InstanceInfo, InstanceSettings, JavaInfo } from "../types";
+
+// Tooltip helper component for settings
+function SettingTooltip({ children }: { children: React.ReactNode }) {
+  return (
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help inline-flex ml-1.5" />
+        </TooltipTrigger>
+        <TooltipContent side="right" className="max-w-xs">
+          <p className="text-sm">{children}</p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
 
 // Java compatibility check result from backend
 interface JavaCompatibilityResult {
@@ -248,7 +270,8 @@ export function SettingsTab({ instanceId, instance }: SettingsTabProps) {
 
   // Get current Java selection status
   const getCurrentJavaStatus = (): { isAuto: boolean; selectedJava: JavaInfo | null; compatibility: JavaCompatibilityResult | null } => {
-    const isAuto = settings.java_path === null;
+    // Auto-detect is when java_path is null OR empty string
+    const isAuto = !settings.java_path;
     const selectedJava = isAuto ? null : detectedJavas.find(j => j.path === settings.java_path) || null;
     const compatibility = selectedJava ? javaCompatibility.get(selectedJava.path) || null : null;
     
@@ -309,7 +332,7 @@ export function SettingsTab({ instanceId, instance }: SettingsTabProps) {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => updateSetting("java_path", null)}
+                      onClick={() => updateSetting("java_path", "")}
                     >
                       Switch to Auto-detect
                     </Button>
@@ -370,7 +393,7 @@ export function SettingsTab({ instanceId, instance }: SettingsTabProps) {
                     "flex items-center justify-between p-4 rounded-lg border cursor-pointer transition-colors",
                     isAuto ? "border-primary bg-primary/5" : "hover:bg-muted/50"
                   )}
-                  onClick={() => updateSetting("java_path", null)}
+                  onClick={() => updateSetting("java_path", "")}
                 >
                   <div className="flex items-center gap-3">
                     <div className={cn(
@@ -558,11 +581,11 @@ export function SettingsTab({ instanceId, instance }: SettingsTabProps) {
                   <Label>Java Executable Path</Label>
                   <Input
                     value={settings.java_path || ""}
-                    onChange={(e) => updateSetting("java_path", e.target.value || null)}
+                    onChange={(e) => updateSetting("java_path", e.target.value)}
                     placeholder="Leave empty for auto-detect"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Use this to specify a Java installation not detected automatically
+                    Use this to specify a Java installation not detected automatically. Leave empty for auto-detect.
                   </p>
                 </div>
               </CardContent>
@@ -582,7 +605,12 @@ export function SettingsTab({ instanceId, instance }: SettingsTabProps) {
                 <div className="space-y-4">
                   <div className="grid gap-2">
                     <div className="flex items-center justify-between">
-                      <Label>Minimum Memory</Label>
+                      <div className="flex items-center">
+                        <Label>Minimum Memory</Label>
+                        <SettingTooltip>
+                          The initial amount of RAM allocated to Java. Setting this too high may slow down startup.
+                        </SettingTooltip>
+                      </div>
                       <span className="text-sm font-mono bg-muted px-2 py-1 rounded">{settings.memory_min_mb} MB</span>
                     </div>
                     <Slider
@@ -601,7 +629,12 @@ export function SettingsTab({ instanceId, instance }: SettingsTabProps) {
 
                   <div className="grid gap-2">
                     <div className="flex items-center justify-between">
-                      <Label>Maximum Memory</Label>
+                      <div className="flex items-center">
+                        <Label>Maximum Memory</Label>
+                        <SettingTooltip>
+                          The maximum RAM Minecraft can use. Don't allocate more than 75% of your system RAM. Too much can actually hurt performance.
+                        </SettingTooltip>
+                      </div>
                       <span className="text-sm font-mono bg-muted px-2 py-1 rounded">{settings.memory_max_mb} MB</span>
                     </div>
                     <Slider
@@ -758,7 +791,12 @@ export function SettingsTab({ instanceId, instance }: SettingsTabProps) {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid gap-2">
-                  <Label>Pre-Launch Command</Label>
+                  <div className="flex items-center">
+                    <Label>Pre-Launch Command</Label>
+                    <SettingTooltip>
+                      A shell command that runs before Minecraft starts. Useful for scripts that need to run before the game, like backup tools or Discord presence updates.
+                    </SettingTooltip>
+                  </div>
                   <Input
                     value={settings.pre_launch_hook || ""}
                     onChange={(e) => updateSetting("pre_launch_hook", e.target.value || null)}
@@ -767,7 +805,12 @@ export function SettingsTab({ instanceId, instance }: SettingsTabProps) {
                   />
                 </div>
                 <div className="grid gap-2">
-                  <Label>Post-Exit Command</Label>
+                  <div className="flex items-center">
+                    <Label>Post-Exit Command</Label>
+                    <SettingTooltip>
+                      A shell command that runs after Minecraft closes. Useful for cleanup scripts or post-game actions.
+                    </SettingTooltip>
+                  </div>
                   <Input
                     value={settings.post_exit_hook || ""}
                     onChange={(e) => updateSetting("post_exit_hook", e.target.value || null)}
@@ -788,7 +831,12 @@ export function SettingsTab({ instanceId, instance }: SettingsTabProps) {
               </CardHeader>
               <CardContent>
                 <div className="grid gap-2">
-                  <Label>JVM Arguments</Label>
+                  <div className="flex items-center">
+                    <Label>JVM Arguments</Label>
+                    <SettingTooltip>
+                      Advanced JVM flags for performance tuning. Common options include garbage collector settings (-XX:+UseG1GC), max heap size is set separately in Memory tab.
+                    </SettingTooltip>
+                  </div>
                   <Textarea
                     value={settings.java_args}
                     onChange={(e) => updateSetting("java_args", e.target.value)}

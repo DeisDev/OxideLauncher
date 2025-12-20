@@ -115,15 +115,23 @@ pub struct InstanceSettingsUpdate {
     pub name: Option<String>,
     pub java_path: Option<String>,
     pub java_args: Option<String>,
+    pub game_args: Option<String>,
     pub min_memory: Option<u32>,
     pub max_memory: Option<u32>,
     pub window_width: Option<u32>,
     pub window_height: Option<u32>,
+    pub start_maximized: Option<bool>,
+    pub fullscreen: Option<bool>,
     pub skip_java_compatibility_check: Option<bool>,
     pub close_launcher_on_launch: Option<bool>,
     pub quit_launcher_on_exit: Option<bool>,
     pub prelaunch_command: Option<String>,
     pub postexit_command: Option<String>,
+    pub wrapper_command: Option<String>,
+    // Debug settings
+    pub use_java_console: Option<bool>,
+    pub disable_create_no_window: Option<bool>,
+    pub log_launch_command: Option<bool>,
 }
 
 // =============================================================================

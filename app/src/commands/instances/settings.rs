@@ -44,6 +44,10 @@ pub struct InstanceSettingsResponse {
     pub game_dir_override: Option<String>,
     pub skip_java_compatibility_check: bool,
     pub wrapper_command: Option<String>,
+    // Debug settings
+    pub use_java_console: bool,
+    pub disable_create_no_window: bool,
+    pub log_launch_command: bool,
 }
 
 #[tauri::command]
@@ -77,6 +81,10 @@ pub async fn get_instance_settings(
         game_dir_override: None, // Not available in current InstanceSettings struct
         skip_java_compatibility_check: instance.settings.skip_java_compatibility_check,
         wrapper_command: instance.settings.wrapper_command.clone(),
+        // Debug settings
+        use_java_console: instance.settings.use_java_console,
+        disable_create_no_window: instance.settings.disable_create_no_window,
+        log_launch_command: instance.settings.log_launch_command,
     })
 }
 
@@ -105,6 +113,9 @@ pub async fn update_instance_settings(
     if let Some(java_args) = settings.java_args {
         instance.settings.jvm_args = if java_args.is_empty() { None } else { Some(java_args) };
     }
+    if let Some(game_args) = settings.game_args {
+        instance.settings.game_args = if game_args.is_empty() { None } else { Some(game_args) };
+    }
     if let Some(min) = settings.min_memory {
         instance.settings.min_memory = Some(min);
     }
@@ -116,6 +127,9 @@ pub async fn update_instance_settings(
     }
     if let Some(height) = settings.window_height {
         instance.settings.window_height = Some(height);
+    }
+    if let Some(fullscreen) = settings.fullscreen {
+        instance.settings.fullscreen = fullscreen;
     }
     if let Some(skip) = settings.skip_java_compatibility_check {
         instance.settings.skip_java_compatibility_check = skip;
@@ -131,6 +145,20 @@ pub async fn update_instance_settings(
     }
     if let Some(cmd) = settings.postexit_command {
         instance.settings.post_exit_command = if cmd.is_empty() { None } else { Some(cmd) };
+    }
+    if let Some(cmd) = settings.wrapper_command {
+        instance.settings.wrapper_command = if cmd.is_empty() { None } else { Some(cmd) };
+    }
+    
+    // Debug settings
+    if let Some(use_console) = settings.use_java_console {
+        instance.settings.use_java_console = use_console;
+    }
+    if let Some(disable_no_window) = settings.disable_create_no_window {
+        instance.settings.disable_create_no_window = disable_no_window;
+    }
+    if let Some(log_cmd) = settings.log_launch_command {
+        instance.settings.log_launch_command = log_cmd;
     }
     
     // Save instance to disk

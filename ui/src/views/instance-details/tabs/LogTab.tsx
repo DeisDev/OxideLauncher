@@ -27,11 +27,12 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import type { LogEntry, LogLevel, LogSource } from "@/types";
 
 interface LogTabProps {
   instanceId?: string;
-  logContent: string[];
-  setLogContent: (logs: string[]) => void;
+  logContent: LogEntry[];
+  setLogContent: (logs: LogEntry[]) => void;
   searchTerm: string;
   setSearchTerm: (term: string) => void;
   autoScroll: boolean;
@@ -41,57 +42,66 @@ interface LogTabProps {
 }
 
 /**
- * Determines the log level/color class for a log line
- * Matches common Minecraft/Java log patterns
+ * Get the CSS class for a log level
  */
-function getLogLineClass(line: string): string {
-  const lowerLine = line.toLowerCase();
-  
-  // Error patterns - red
-  if (
-    lowerLine.includes('/error]') ||
-    lowerLine.includes('[error]') ||
-    lowerLine.includes(' error:') ||
-    lowerLine.includes('exception') ||
-    lowerLine.includes('fatal') ||
-    lowerLine.includes('failed') ||
-    lowerLine.includes('crash') ||
-    /\berror\b/.test(lowerLine)
-  ) {
-    return 'text-red-400';
+function getLevelClass(level: LogLevel): string {
+  switch (level) {
+    case "fatal":
+      return "text-red-500 font-semibold";
+    case "error":
+      return "text-red-400";
+    case "warning":
+      return "text-amber-400";
+    case "info":
+      return "text-slate-300";
+    case "debug":
+      return "text-slate-500";
+    case "trace":
+      return "text-slate-600";
+    default:
+      return "text-slate-300";
   }
-  
-  // Warning patterns - amber/orange
-  if (
-    lowerLine.includes('/warn]') ||
-    lowerLine.includes('[warn]') ||
-    lowerLine.includes('[warning]') ||
-    lowerLine.includes(' warn:') ||
-    lowerLine.includes(' warning:') ||
-    /\bwarn(ing)?\b/.test(lowerLine)
-  ) {
-    return 'text-amber-400';
+}
+
+/**
+ * Get a short prefix for the log source
+ */
+function getSourcePrefix(source: LogSource): string {
+  switch (source) {
+    case "launcher":
+      return "[LAUNCHER]";
+    case "stderr":
+      return "[STDERR]";
+    case "game":
+    default:
+      return "";
   }
-  
-  // Info patterns - default (could make blue/cyan)
-  if (
-    lowerLine.includes('/info]') ||
-    lowerLine.includes('[info]')
-  ) {
-    return 'text-slate-300';
+}
+
+/**
+ * Get the CSS class for a log source indicator
+ */
+function getSourceClass(source: LogSource): string {
+  switch (source) {
+    case "launcher":
+      return "text-cyan-400";
+    case "stderr":
+      return "text-orange-400";
+    case "game":
+    default:
+      return "";
   }
-  
-  // Debug patterns - dim gray
-  if (
-    lowerLine.includes('/debug]') ||
-    lowerLine.includes('[debug]') ||
-    lowerLine.includes('[trace]')
-  ) {
-    return 'text-slate-500';
+}
+
+/**
+ * Format a log entry for display
+ */
+function formatLogEntry(entry: LogEntry): string {
+  const prefix = getSourcePrefix(entry.source);
+  if (prefix) {
+    return `${prefix} ${entry.content}`;
   }
-  
-  // Default color
-  return 'text-slate-300';
+  return entry.content;
 }
 
 export function LogTab({
@@ -114,7 +124,10 @@ export function LogTab({
   }, [logContent, autoScroll]);
 
   const copyLogs = () => {
-    navigator.clipboard.writeText(logContent.join("\n"));
+    const text = logContent
+      .map((entry) => formatLogEntry(entry))
+      .join("\n");
+    navigator.clipboard.writeText(text);
   };
 
   const uploadLogs = () => {
@@ -135,8 +148,8 @@ export function LogTab({
   };
 
   const filteredLogs = searchTerm
-    ? logContent.filter((line) =>
-        line.toLowerCase().includes(searchTerm.toLowerCase())
+    ? logContent.filter((entry) =>
+        entry.content.toLowerCase().includes(searchTerm.toLowerCase())
       )
     : logContent;
 
@@ -194,11 +207,20 @@ export function LogTab({
 
       <ScrollArea className="flex-1 rounded-md border bg-black/50">
         <div className={cn("p-4 font-mono text-xs", wrapLines ? "whitespace-pre-wrap" : "whitespace-pre")}>
-          {filteredLogs.map((line, index) => (
-            <div key={index} className={cn("hover:bg-white/5", getLogLineClass(line))}>
-              {line}
-            </div>
-          ))}
+          {filteredLogs.map((entry, index) => {
+            const prefix = getSourcePrefix(entry.source);
+            const sourceClass = getSourceClass(entry.source);
+            const levelClass = getLevelClass(entry.level);
+            
+            return (
+              <div key={index} className={cn("hover:bg-white/5", levelClass)}>
+                {prefix && (
+                  <span className={cn("mr-1", sourceClass)}>{prefix}</span>
+                )}
+                <span>{entry.content}</span>
+              </div>
+            );
+          })}
           <div ref={logEndRef} />
         </div>
       </ScrollArea>

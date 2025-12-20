@@ -120,7 +120,19 @@ pub async fn launch_instance(
     
     // Get the game process from the launch task
     if let Some(process_arc) = launch_task.take_game_process() {
+        use crate::core::logging::{LogEntry, LogLevel};
+        
         let logs = Arc::new(Mutex::new(Vec::new()));
+        let exit_code = Arc::new(Mutex::new(None));
+        
+        // Add initial launcher log entry
+        {
+            let mut log_vec = logs.lock().unwrap();
+            log_vec.push(LogEntry::launcher_info(format!(
+                "Game process started for instance '{}'", 
+                instance.name
+            )));
+        }
         
         // Try to get stdout/stderr from the child process
         {
@@ -139,7 +151,7 @@ pub async fn launch_instance(
                     for line in reader.lines() {
                         if let Ok(line) = line {
                             if let Ok(mut logs) = logs_clone.lock() {
-                                logs.push(format!("[GAME] {}", line));
+                                logs.push(LogEntry::game(line));
                             }
                         }
                     }
@@ -155,7 +167,7 @@ pub async fn launch_instance(
                     for line in reader.lines() {
                         if let Ok(line) = line {
                             if let Ok(mut logs) = logs_clone.lock() {
-                                logs.push(format!("[GAME/ERR] {}", line));
+                                logs.push(LogEntry::stderr(line));
                             }
                         }
                     }
@@ -163,12 +175,83 @@ pub async fn launch_instance(
             }
         }
         
+        // Spawn a task to monitor process exit
+        {
+            let process_arc_clone = process_arc.clone();
+            let logs_clone = logs.clone();
+            let exit_code_clone = exit_code.clone();
+            let instance_name = instance.name.clone();
+            
+            std::thread::spawn(move || {
+                // Wait for the process to exit
+                loop {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    
+                    if let Ok(mut child) = process_arc_clone.lock() {
+                        match child.try_wait() {
+                            Ok(Some(status)) => {
+                                let code = status.code();
+                                
+                                // Store exit code
+                                if let Ok(mut ec) = exit_code_clone.lock() {
+                                    *ec = code;
+                                }
+                                
+                                // Add exit log entry
+                                if let Ok(mut log_vec) = logs_clone.lock() {
+                                    match code {
+                                        Some(0) => {
+                                            log_vec.push(LogEntry::launcher_info(format!(
+                                                "Game '{}' exited normally (exit code: 0)",
+                                                instance_name
+                                            )));
+                                        }
+                                        Some(code) => {
+                                            log_vec.push(LogEntry::launcher(
+                                                LogLevel::Error,
+                                                format!(
+                                                    "Game '{}' exited with error code: {}",
+                                                    instance_name, code
+                                                )
+                                            ));
+                                        }
+                                        None => {
+                                            log_vec.push(LogEntry::launcher_warn(format!(
+                                                "Game '{}' exited (signal terminated)",
+                                                instance_name
+                                            )));
+                                        }
+                                    }
+                                }
+                                break;
+                            }
+                            Ok(None) => {
+                                // Still running, continue waiting
+                            }
+                            Err(e) => {
+                                // Error checking status
+                                if let Ok(mut log_vec) = logs_clone.lock() {
+                                    log_vec.push(LogEntry::launcher_error(format!(
+                                        "Error checking process status: {}",
+                                        e
+                                    )));
+                                }
+                                break;
+                            }
+                        }
+                    } else {
+                        break; // Mutex poisoned, exit
+                    }
+                }
+            });
+        }
+        
         // Store the process in running_processes (keeping the Arc<Mutex<Child>>)
         let running_process = RunningProcess {
             child: process_arc,
             logs,
             launch_time: std::time::Instant::now(),
-            exit_code: None,
+            exit_code,
         };
         
         let mut processes = state.running_processes.lock().unwrap();
@@ -230,11 +313,14 @@ pub async fn get_instance_status(
         // Get launch time before checking status
         let launch_time = process.launch_time;
         
+        // Check if we already have an exit code from the monitor thread
+        let stored_exit_code = process.exit_code.lock().ok().and_then(|ec| *ec);
+        
         // Check if process is still running
         match child.try_wait() {
             Ok(Some(exit_status)) => {
-                // Process has exited - get exit code and calculate play time
-                let exit_code = exit_status.code();
+                // Process has exited - use stored exit code if available, otherwise get from status
+                let exit_code = stored_exit_code.or(exit_status.code());
                 
                 // Calculate play time
                 let play_time_secs = launch_time.elapsed().as_secs();
@@ -246,8 +332,8 @@ pub async fn get_instance_status(
                 return Ok(InstanceStatus { running: true, exit_code: None });
             }
             Err(_) => {
-                // Error checking status, assume not running
-                Some((false, None, None))
+                // Error checking status - use stored exit code if available
+                Some((false, stored_exit_code, None))
             }
         }
     } else {
@@ -284,7 +370,7 @@ pub async fn get_instance_status(
 pub async fn get_instance_logs(
     state: State<'_, AppState>,
     instance_id: String,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<crate::core::logging::LogEntry>, String> {
     let processes = state.running_processes.lock().unwrap();
     if let Some(process_arc) = processes.get(&instance_id) {
         if let Ok(process) = process_arc.lock() {

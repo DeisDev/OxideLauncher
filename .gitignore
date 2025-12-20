@@ -49,3 +49,5 @@ Desktop.ini
 *.temp
 .cache
 claude.md
+# Test scripts
+test_forge.bat

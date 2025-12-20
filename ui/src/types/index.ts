@@ -218,3 +218,15 @@ export type InstanceTabType =
   | "worlds"
   | "screenshots"
   | "settings";
+
+// Log Types
+export type LogSource = "launcher" | "game" | "stderr";
+
+export type LogLevel = "trace" | "debug" | "info" | "warning" | "error" | "fatal";
+
+export interface LogEntry {
+  timestamp: number;
+  source: LogSource;
+  level: LogLevel;
+  content: string;
+}

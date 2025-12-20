@@ -22,6 +22,7 @@ use crate::core::{
     accounts::{Account, AccountList},
     config::Config,
     instance::{Instance, InstanceList},
+    logging::LogEntry,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -33,12 +34,12 @@ use std::time::Instant;
 pub struct RunningProcess {
     /// The child process - wrapped in Arc<Mutex<>> since we got it from the launch task
     pub child: Arc<Mutex<Child>>,
-    pub logs: Arc<Mutex<Vec<String>>>,
+    /// Structured log entries from the game process
+    pub logs: Arc<Mutex<Vec<LogEntry>>>,
     /// Time when the game was launched
     pub launch_time: Instant,
     /// Exit code when process exits (None if still running or not checked yet)
-    #[allow(dead_code)] // Reserved for future crash reporting feature
-    pub exit_code: Option<i32>,
+    pub exit_code: Arc<Mutex<Option<i32>>>,
 }
 
 /// Application state shared across all commands

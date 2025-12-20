@@ -626,9 +626,13 @@ impl LaunchStep for LaunchGameStep {
             args.push("--mainClass".to_string());
             args.push(main_class);
             
-            let game_dir = context.instance.game_dir();
-            args.push("--gameDir".to_string());
-            args.push(game_dir.to_string_lossy().to_string());
+            // For tweaker launcher, don't pass --gameDir to wrapper; let it go in game args
+            // Standard and Legacy launchers may need it passed to wrapper
+            if launcher_type != LauncherType::Tweaker {
+                let game_dir = context.instance.game_dir();
+                args.push("--gameDir".to_string());
+                args.push(game_dir.to_string_lossy().to_string());
+            }
             
             args.push("--assetsDir".to_string());
             args.push(context.assets_dir.to_string_lossy().to_string());
