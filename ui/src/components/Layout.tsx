@@ -195,13 +195,13 @@ export function Layout({ children }: LayoutProps) {
       id: "bug", 
       label: "Report a Bug", 
       icon: Bug,
-      action: () => openExternalLink("https://github.com/DeisDev/OxideLauncher/issues/new?template=bug_report.md")
+      action: () => openExternalLink("https://github.com/OxideLauncher/OxideLauncher/issues/new?template=bug_report.md")
     },
     { 
       id: "feature", 
       label: "Suggest a Feature", 
       icon: MessageSquare,
-      action: () => openExternalLink("https://github.com/DeisDev/OxideLauncher/issues/new?template=feature_request.md")
+      action: () => openExternalLink("https://github.com/OxideLauncher/OxideLauncher/issues/new?template=feature_request.md")
     },
     { id: "divider1", divider: true },
     { 
@@ -220,13 +220,13 @@ export function Layout({ children }: LayoutProps) {
       id: "website", 
       label: "Website", 
       icon: Globe,
-      action: () => openExternalLink("https://oxidelauncher.com") // Placeholder
+      action: () => openExternalLink("https://oxidelauncher.org")
     },
     { 
       id: "docs", 
       label: "Documentation", 
       icon: BookOpen,
-      action: () => openExternalLink("https://github.com/DeisDev/OxideLauncher/wiki")
+      action: () => openExternalLink("https://github.com/OxideLauncher/OxideLauncher/wiki")
     },
     { id: "divider2", divider: true },
     { 

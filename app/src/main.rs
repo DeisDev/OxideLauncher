@@ -314,6 +314,8 @@ fn main() {
             commands::rustwiz::export_modrinth_pack,
             commands::rustwiz::export_curseforge_pack,
             commands::rustwiz::export_rustwiz_format,
+            // News commands
+            commands::news::get_news,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

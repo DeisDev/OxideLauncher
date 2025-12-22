@@ -1,11 +1,7 @@
 //! Version management Tauri commands for Minecraft and mod loaders.
 //!
-//! This module provides two implementation paths:
-//! - **Meta Server** (new): Uses self-hosted PrismLauncher-format meta server
-//! - **Legacy** (fallback): Uses direct API calls to individual sources
-//!
-//! The meta server implementation is preferred when available. Set `USE_META_SERVER`
-//! to `true` to enable it once the meta server is ready.
+//! This module provides version listing for Minecraft and modloaders using
+//! the Oxide Launcher meta server (PrismLauncher format).
 //!
 //! Oxide Launcher — A Rust-based Minecraft launcher
 //! Copyright (C) 2025 Oxide Launcher contributors
@@ -25,16 +21,8 @@
 //! You should have received a copy of the GNU General Public License
 //! along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use crate::core::{
-    meta::MetaClient,
-    minecraft::version::{fetch_version_manifest, VersionType},
-    modloaders,
-};
+use crate::core::meta::MetaClient;
 use serde::{Deserialize, Serialize};
-
-/// Toggle to switch between meta server and legacy implementations.
-/// Set to `true` once the meta server at meta.oxidelauncher.org is ready.
-const USE_META_SERVER: bool = false;
 
 /// Minecraft version information
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,279 +40,135 @@ pub struct LoaderVersionInfo {
 }
 
 // ============================================================================
-// Meta Server Implementation
-// ============================================================================
-
-mod meta_impl {
-    use super::*;
-
-    pub async fn get_minecraft_versions(
-        show_releases: bool,
-        show_snapshots: bool,
-        show_old: bool,
-    ) -> Result<Vec<MinecraftVersionInfo>, String> {
-        let client = MetaClient::default();
-        let versions = client
-            .get_minecraft_versions_filtered(show_releases, show_snapshots, show_old)
-            .await
-            .map_err(|e| format!("Failed to fetch Minecraft versions from meta server: {}", e))?;
-
-        Ok(versions
-            .into_iter()
-            .map(|v| MinecraftVersionInfo {
-                id: v.version,
-                version_type: v.version_type.unwrap_or_else(|| "release".to_string()),
-                release_time: v.release_time,
-            })
-            .collect())
-    }
-
-    pub async fn get_forge_versions(minecraft_version: &str) -> Result<Vec<LoaderVersionInfo>, String> {
-        let client = MetaClient::default();
-        let versions = client
-            .get_forge_versions(minecraft_version)
-            .await
-            .map_err(|e| format!("Failed to fetch Forge versions from meta server: {}", e))?;
-
-        Ok(versions
-            .into_iter()
-            .map(|v| LoaderVersionInfo {
-                version: v.version,
-                recommended: v.recommended,
-            })
-            .collect())
-    }
-
-    pub async fn get_fabric_versions(minecraft_version: &str) -> Result<Vec<LoaderVersionInfo>, String> {
-        let client = MetaClient::default();
-        let versions = client
-            .get_fabric_versions(minecraft_version)
-            .await
-            .map_err(|e| format!("Failed to fetch Fabric versions from meta server: {}", e))?;
-
-        Ok(versions
-            .into_iter()
-            .map(|v| LoaderVersionInfo {
-                version: v.version,
-                recommended: v.recommended,
-            })
-            .collect())
-    }
-
-    pub async fn get_neoforge_versions(minecraft_version: &str) -> Result<Vec<LoaderVersionInfo>, String> {
-        let client = MetaClient::default();
-        let versions = client
-            .get_neoforge_versions(minecraft_version)
-            .await
-            .map_err(|e| format!("Failed to fetch NeoForge versions from meta server: {}", e))?;
-
-        Ok(versions
-            .into_iter()
-            .map(|v| LoaderVersionInfo {
-                version: v.version,
-                recommended: v.recommended,
-            })
-            .collect())
-    }
-
-    pub async fn get_quilt_versions(minecraft_version: &str) -> Result<Vec<LoaderVersionInfo>, String> {
-        let client = MetaClient::default();
-        let versions = client
-            .get_quilt_versions(minecraft_version)
-            .await
-            .map_err(|e| format!("Failed to fetch Quilt versions from meta server: {}", e))?;
-
-        Ok(versions
-            .into_iter()
-            .map(|v| LoaderVersionInfo {
-                version: v.version,
-                recommended: v.recommended,
-            })
-            .collect())
-    }
-
-    pub async fn get_liteloader_versions(minecraft_version: &str) -> Result<Vec<LoaderVersionInfo>, String> {
-        let client = MetaClient::default();
-        let versions = client
-            .get_liteloader_versions(minecraft_version)
-            .await
-            .map_err(|e| format!("Failed to fetch LiteLoader versions from meta server: {}", e))?;
-
-        Ok(versions
-            .into_iter()
-            .map(|v| LoaderVersionInfo {
-                version: v.version,
-                recommended: v.recommended,
-            })
-            .collect())
-    }
-}
-
-// ============================================================================
-// Legacy Implementation (direct API calls)
-// ============================================================================
-
-mod legacy_impl {
-    use super::*;
-
-    pub async fn get_minecraft_versions(
-        show_releases: bool,
-        show_snapshots: bool,
-        show_old: bool,
-    ) -> Result<Vec<MinecraftVersionInfo>, String> {
-        let manifest = fetch_version_manifest()
-            .await
-            .map_err(|e| format!("Failed to fetch version manifest: {}", e))?;
-
-        let versions: Vec<MinecraftVersionInfo> = manifest
-            .versions
-            .into_iter()
-            .filter(|v| match v.version_type {
-                VersionType::Release => show_releases,
-                VersionType::Snapshot => show_snapshots,
-                VersionType::OldAlpha | VersionType::OldBeta => show_old,
-            })
-            .map(|v| MinecraftVersionInfo {
-                id: v.id,
-                version_type: format!("{:?}", v.version_type),
-                release_time: v.release_time.to_rfc3339(),
-            })
-            .collect();
-
-        Ok(versions)
-    }
-
-    pub async fn get_forge_versions(minecraft_version: &str) -> Result<Vec<LoaderVersionInfo>, String> {
-        let versions = modloaders::get_forge_versions(minecraft_version)
-            .await
-            .map_err(|e| format!("Failed to fetch Forge versions: {}", e))?;
-
-        Ok(versions
-            .into_iter()
-            .map(|v| LoaderVersionInfo {
-                version: v.version,
-                recommended: v.recommended,
-            })
-            .collect())
-    }
-
-    pub async fn get_fabric_versions(minecraft_version: &str) -> Result<Vec<LoaderVersionInfo>, String> {
-        let versions = modloaders::get_fabric_versions(minecraft_version)
-            .await
-            .map_err(|e| format!("Failed to fetch Fabric versions: {}", e))?;
-
-        Ok(versions
-            .into_iter()
-            .map(|v| LoaderVersionInfo {
-                version: v.version,
-                recommended: v.stable,
-            })
-            .collect())
-    }
-
-    pub async fn get_neoforge_versions(minecraft_version: &str) -> Result<Vec<LoaderVersionInfo>, String> {
-        let versions = modloaders::get_neoforge_versions(minecraft_version)
-            .await
-            .map_err(|e| format!("Failed to fetch NeoForge versions: {}", e))?;
-
-        Ok(versions
-            .into_iter()
-            .map(|v| LoaderVersionInfo {
-                version: v.version,
-                recommended: v.recommended,
-            })
-            .collect())
-    }
-
-    pub async fn get_quilt_versions(minecraft_version: &str) -> Result<Vec<LoaderVersionInfo>, String> {
-        let versions = modloaders::get_quilt_versions(minecraft_version)
-            .await
-            .map_err(|e| format!("Failed to fetch Quilt versions: {}", e))?;
-
-        Ok(versions
-            .into_iter()
-            .enumerate()
-            .map(|(idx, v)| LoaderVersionInfo {
-                version: v.version,
-                recommended: idx == 0,
-            })
-            .collect())
-    }
-
-    pub async fn get_liteloader_versions(minecraft_version: &str) -> Result<Vec<LoaderVersionInfo>, String> {
-        let versions = modloaders::get_liteloader_versions(minecraft_version)
-            .await
-            .map_err(|e| format!("Failed to fetch LiteLoader versions: {}", e))?;
-
-        Ok(versions
-            .into_iter()
-            .enumerate()
-            .map(|(idx, v)| LoaderVersionInfo {
-                version: v.version,
-                recommended: idx == 0,
-            })
-            .collect())
-    }
-}
-
-// ============================================================================
-// Tauri Commands (dispatch to appropriate implementation)
+// Tauri Commands
 // ============================================================================
 
 #[tauri::command]
 pub async fn get_minecraft_versions(
     show_releases: bool,
     show_snapshots: bool,
-    show_old: bool,
+    show_betas: bool,
+    show_alphas: bool,
+    show_experimental: bool,
 ) -> Result<Vec<MinecraftVersionInfo>, String> {
-    if USE_META_SERVER {
-        meta_impl::get_minecraft_versions(show_releases, show_snapshots, show_old).await
-    } else {
-        legacy_impl::get_minecraft_versions(show_releases, show_snapshots, show_old).await
-    }
+    let client = MetaClient::default();
+    let versions = client
+        .get_minecraft_versions_filtered(show_releases, show_snapshots, show_betas, show_alphas, show_experimental)
+        .await
+        .map_err(|e| format!("Failed to fetch Minecraft versions: {}", e))?;
+
+    Ok(versions
+        .into_iter()
+        .map(|v| MinecraftVersionInfo {
+            id: v.version,
+            version_type: v.version_type.unwrap_or_else(|| "release".to_string()),
+            release_time: v.release_time,
+        })
+        .collect())
 }
 
 #[tauri::command]
 pub async fn get_forge_versions(minecraft_version: String) -> Result<Vec<LoaderVersionInfo>, String> {
-    if USE_META_SERVER {
-        meta_impl::get_forge_versions(&minecraft_version).await
-    } else {
-        legacy_impl::get_forge_versions(&minecraft_version).await
-    }
+    let client = MetaClient::default();
+    let versions = client
+        .get_forge_versions(&minecraft_version)
+        .await
+        .map_err(|e| format!("Failed to fetch Forge versions: {}", e))?;
+
+    Ok(versions
+        .into_iter()
+        .map(|v| LoaderVersionInfo {
+            version: v.version,
+            recommended: v.recommended,
+        })
+        .collect())
 }
 
 #[tauri::command]
 pub async fn get_fabric_versions(minecraft_version: String) -> Result<Vec<LoaderVersionInfo>, String> {
-    if USE_META_SERVER {
-        meta_impl::get_fabric_versions(&minecraft_version).await
-    } else {
-        legacy_impl::get_fabric_versions(&minecraft_version).await
-    }
+    let client = MetaClient::default();
+    let versions = client
+        .get_fabric_versions(&minecraft_version)
+        .await
+        .map_err(|e| format!("Failed to fetch Fabric versions: {}", e))?;
+
+    Ok(versions
+        .into_iter()
+        .map(|v| LoaderVersionInfo {
+            version: v.version,
+            recommended: v.recommended,
+        })
+        .collect())
 }
 
 #[tauri::command]
 pub async fn get_quilt_versions(minecraft_version: String) -> Result<Vec<LoaderVersionInfo>, String> {
-    if USE_META_SERVER {
-        meta_impl::get_quilt_versions(&minecraft_version).await
-    } else {
-        legacy_impl::get_quilt_versions(&minecraft_version).await
+    let client = MetaClient::default();
+    let versions = client
+        .get_quilt_versions(&minecraft_version)
+        .await
+        .map_err(|e| format!("Failed to fetch Quilt versions: {}", e))?;
+
+    // Quilt versions are all beta (recommended=false), so treat first as recommended
+    let mut result: Vec<LoaderVersionInfo> = versions
+        .into_iter()
+        .enumerate()
+        .map(|(idx, v)| LoaderVersionInfo {
+            version: v.version,
+            // If meta marks it recommended, use that; otherwise first is recommended
+            recommended: v.recommended || idx == 0,
+        })
+        .collect();
+    
+    // Ensure only one is marked recommended
+    if result.iter().filter(|v| v.recommended).count() > 1 {
+        let mut found_first = false;
+        for item in result.iter_mut() {
+            if item.recommended {
+                if found_first {
+                    item.recommended = false;
+                } else {
+                    found_first = true;
+                }
+            }
+        }
     }
+    
+    Ok(result)
 }
 
 #[tauri::command]
 pub async fn get_neoforge_versions(minecraft_version: String) -> Result<Vec<LoaderVersionInfo>, String> {
-    if USE_META_SERVER {
-        meta_impl::get_neoforge_versions(&minecraft_version).await
-    } else {
-        legacy_impl::get_neoforge_versions(&minecraft_version).await
-    }
+    let client = MetaClient::default();
+    let versions = client
+        .get_neoforge_versions(&minecraft_version)
+        .await
+        .map_err(|e| format!("Failed to fetch NeoForge versions: {}", e))?;
+
+    Ok(versions
+        .into_iter()
+        .map(|v| LoaderVersionInfo {
+            version: v.version,
+            recommended: v.recommended,
+        })
+        .collect())
 }
 
 #[tauri::command]
 pub async fn get_liteloader_versions(minecraft_version: String) -> Result<Vec<LoaderVersionInfo>, String> {
-    if USE_META_SERVER {
-        meta_impl::get_liteloader_versions(&minecraft_version).await
-    } else {
-        legacy_impl::get_liteloader_versions(&minecraft_version).await
-    }
+    let client = MetaClient::default();
+    let versions = client
+        .get_liteloader_versions(&minecraft_version)
+        .await
+        .map_err(|e| format!("Failed to fetch LiteLoader versions: {}", e))?;
+
+    Ok(versions
+        .into_iter()
+        .enumerate()
+        .map(|(idx, v)| LoaderVersionInfo {
+            version: v.version,
+            // LiteLoader: if meta marks recommended, use it; otherwise first is recommended
+            recommended: v.recommended || idx == 0,
+        })
+        .collect())
 }

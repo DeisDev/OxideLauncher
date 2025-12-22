@@ -23,8 +23,8 @@ use tracing::{debug, info};
 
 use super::types::{MetaIndex, PackageIndex, VersionEntry, uids};
 
-/// Default meta server URL (will point to self-hosted server when ready).
-const DEFAULT_META_URL: &str = "https://meta.oxidelauncher.org";
+/// Meta server URL - our self-hosted PrismLauncher-format server.
+const META_SERVER_URL: &str = "https://meta.oxidelauncher.org";
 
 /// Client for interacting with the PrismLauncher-format meta server.
 #[derive(Debug, Clone)]
@@ -35,7 +35,7 @@ pub struct MetaClient {
 
 impl Default for MetaClient {
     fn default() -> Self {
-        Self::new(DEFAULT_META_URL)
+        Self::new(META_SERVER_URL)
     }
 }
 
@@ -44,7 +44,10 @@ impl MetaClient {
     pub fn new(base_url: &str) -> Self {
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .user_agent(format!("OxideLauncher/{}", env!("CARGO_PKG_VERSION")))
+                .build()
+                .unwrap_or_else(|_| reqwest::Client::new()),
         }
     }
     
@@ -98,6 +101,10 @@ impl MetaClient {
         Ok(index)
     }
     
+    // =========================================================================
+    // Minecraft Versions
+    // =========================================================================
+    
     /// Get all Minecraft versions.
     pub async fn get_minecraft_versions(&self) -> Result<Vec<VersionEntry>> {
         let index = self.fetch_package_index(uids::MINECRAFT).await?;
@@ -109,7 +116,9 @@ impl MetaClient {
         &self,
         show_releases: bool,
         show_snapshots: bool,
-        show_old: bool,
+        show_betas: bool,
+        show_alphas: bool,
+        show_experimental: bool,
     ) -> Result<Vec<VersionEntry>> {
         let versions = self.get_minecraft_versions().await?;
         
@@ -120,13 +129,19 @@ impl MetaClient {
                 match version_type {
                     "release" => show_releases,
                     "snapshot" => show_snapshots,
-                    "old_alpha" | "old_beta" => show_old,
-                    "experiment" => show_snapshots, // Treat experiments like snapshots
+                    "experiment" => show_experimental,
+                    "old_beta" => show_betas,
+                    "old_alpha" => show_alphas,
+                    "old_snapshot" => show_alphas, // Old snapshots are early pre-release, group with alphas
                     _ => show_releases, // Unknown types default to release behavior
                 }
             })
             .collect())
     }
+    
+    // =========================================================================
+    // Modloader Versions
+    // =========================================================================
     
     /// Get all versions for a specific modloader.
     pub async fn get_loader_versions(&self, loader_uid: &str) -> Result<Vec<VersionEntry>> {
@@ -135,6 +150,7 @@ impl MetaClient {
     }
     
     /// Get modloader versions compatible with a specific Minecraft version.
+    /// For Forge/NeoForge/LiteLoader that have direct MC version requirements.
     pub async fn get_loader_versions_for_minecraft(
         &self,
         loader_uid: &str,
@@ -158,16 +174,9 @@ impl MetaClient {
         Ok(compatible)
     }
     
-    // Convenience methods for specific loaders
-    
     /// Get Forge versions for a Minecraft version.
     pub async fn get_forge_versions(&self, minecraft_version: &str) -> Result<Vec<VersionEntry>> {
         self.get_loader_versions_for_minecraft(uids::FORGE, minecraft_version).await
-    }
-    
-    /// Get Fabric Loader versions for a Minecraft version.
-    pub async fn get_fabric_versions(&self, minecraft_version: &str) -> Result<Vec<VersionEntry>> {
-        self.get_loader_versions_for_minecraft(uids::FABRIC_LOADER, minecraft_version).await
     }
     
     /// Get NeoForge versions for a Minecraft version.
@@ -175,14 +184,49 @@ impl MetaClient {
         self.get_loader_versions_for_minecraft(uids::NEOFORGE, minecraft_version).await
     }
     
-    /// Get Quilt Loader versions for a Minecraft version.
-    pub async fn get_quilt_versions(&self, minecraft_version: &str) -> Result<Vec<VersionEntry>> {
-        self.get_loader_versions_for_minecraft(uids::QUILT_LOADER, minecraft_version).await
-    }
-    
     /// Get LiteLoader versions for a Minecraft version.
     pub async fn get_liteloader_versions(&self, minecraft_version: &str) -> Result<Vec<VersionEntry>> {
         self.get_loader_versions_for_minecraft(uids::LITELOADER, minecraft_version).await
+    }
+    
+    /// Get Fabric Loader versions.
+    /// Note: Fabric doesn't filter by MC version at the loader level - 
+    /// it uses intermediary for compatibility. All loader versions work with all supported MC versions.
+    pub async fn get_fabric_versions(&self, _minecraft_version: &str) -> Result<Vec<VersionEntry>> {
+        // Fabric loader versions are MC-agnostic; intermediary handles compatibility
+        self.get_loader_versions(uids::FABRIC_LOADER).await
+    }
+    
+    /// Get Quilt Loader versions.
+    /// Note: Like Fabric, Quilt uses intermediary and loader versions are MC-agnostic.
+    pub async fn get_quilt_versions(&self, _minecraft_version: &str) -> Result<Vec<VersionEntry>> {
+        // Quilt loader versions are MC-agnostic; intermediary handles compatibility
+        self.get_loader_versions(uids::QUILT_LOADER).await
+    }
+    
+    // =========================================================================
+    // Java Runtimes
+    // =========================================================================
+    
+    /// Get all Java versions from a specific provider.
+    pub async fn get_java_versions(&self, provider_uid: &str) -> Result<Vec<VersionEntry>> {
+        let index = self.fetch_package_index(provider_uid).await?;
+        Ok(index.versions)
+    }
+    
+    /// Get Azul Zulu Java versions.
+    pub async fn get_azul_java_versions(&self) -> Result<Vec<VersionEntry>> {
+        self.get_java_versions(uids::JAVA_AZUL).await
+    }
+    
+    /// Get Eclipse Adoptium Java versions.
+    pub async fn get_adoptium_java_versions(&self) -> Result<Vec<VersionEntry>> {
+        self.get_java_versions(uids::JAVA_ADOPTIUM).await
+    }
+    
+    /// Get Mojang's bundled Java versions.
+    pub async fn get_mojang_java_versions(&self) -> Result<Vec<VersionEntry>> {
+        self.get_java_versions(uids::JAVA_MOJANG).await
     }
 }
 

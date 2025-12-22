@@ -67,9 +67,9 @@ export interface JavaInstallation {
 }
 
 export interface AvailableJavaVersion {
-  major_version: number;
-  version: string;
-  lts: boolean;
+  major: number;
+  name: string;
+  is_lts: boolean;
 }
 
 // World Types

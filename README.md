@@ -2,27 +2,27 @@
 
 
 <div align="center">
-     <img src="https://raw.githubusercontent.com/DeisDev/OxideLauncher/main/ui/art/oxidebannershort.svg" alt="Oxide Banner" width="320" />
+     <img src="https://raw.githubusercontent.com/OxideLauncher/OxideLauncher/main/ui/art/oxidebannershort.svg" alt="Oxide Banner" width="320" />
      <br />
      <br />
      <p align="center">
-          <a href="https://github.com/DeisDev/OxideLauncher/blob/main/LICENSE">
-               <img src="https://img.shields.io/github/license/DeisDev/OxideLauncher?style=flat-square" alt="License" />
+          <a href="https://github.com/OxideLauncher/OxideLauncher/blob/main/LICENSE">
+               <img src="https://img.shields.io/github/license/OxideLauncher/OxideLauncher?style=flat-square" alt="License" />
           </a>
-          <a href="https://github.com/DeisDev/OxideLauncher/actions">
-               <img src="https://img.shields.io/github/actions/workflow/status/DeisDev/OxideLauncher/ci.yml?branch=main&style=flat-square" alt="Build Status" />
+          <a href="https://github.com/OxideLauncher/OxideLauncher/actions">
+               <img src="https://img.shields.io/github/actions/workflow/status/OxideLauncher/OxideLauncher/ci.yml?branch=main&style=flat-square" alt="Build Status" />
           </a>
-          <a href="https://github.com/DeisDev/OxideLauncher/issues">
-               <img src="https://img.shields.io/github/issues/DeisDev/OxideLauncher?style=flat-square" alt="Open Issues" />
+          <a href="https://github.com/OxideLauncher/OxideLauncher/issues">
+               <img src="https://img.shields.io/github/issues/OxideLauncher/OxideLauncher?style=flat-square" alt="Open Issues" />
           </a>
-          <a href="https://github.com/DeisDev/OxideLauncher/releases">
-               <img src="https://img.shields.io/github/v/release/DeisDev/OxideLauncher?style=flat-square" alt="Latest Release" />
+          <a href="https://github.com/OxideLauncher/OxideLauncher/releases">
+               <img src="https://img.shields.io/github/v/release/OxideLauncher/OxideLauncher?style=flat-square" alt="Latest Release" />
           </a>
-          <a href="https://github.com/DeisDev/OxideLauncher/stargazers">
-               <img src="https://img.shields.io/github/stars/DeisDev/OxideLauncher?style=flat-square" alt="GitHub stars" />
+          <a href="https://github.com/OxideLauncher/OxideLauncher/stargazers">
+               <img src="https://img.shields.io/github/stars/OxideLauncher/OxideLauncher?style=flat-square" alt="GitHub stars" />
           </a>
-          <a href="https://github.com/DeisDev/OxideLauncher/commits/main">
-               <img src="https://img.shields.io/github/last-commit/DeisDev/OxideLauncher/main?style=flat-square" alt="Last commit" />
+          <a href="https://github.com/OxideLauncher/OxideLauncher/commits/main">
+               <img src="https://img.shields.io/github/last-commit/OxideLauncher/OxideLauncher/main?style=flat-square" alt="Last commit" />
           </a>
      </p>
 </div>
@@ -40,7 +40,7 @@ Easily manage and install mods for multiple Minecraft installations. Inspired by
 
 ## Installation
 
-Find the latest builds in the [Releases](https://github.com/DeisDev/OxideLauncher/releases) tab.
+Find the latest builds in the [Releases](https://github.com/OxideLauncher/OxideLauncher/releases) tab.
 
 *Website coming soon.*
 

@@ -112,20 +112,47 @@ pub async fn validate_java(java_path: String) -> Result<JavaInstallationInfo, St
     Err(result.error.unwrap_or_else(|| "Java validation failed".to_string()))
 }
 
-/// Fetch available Java versions for download
+/// Fetch available Java versions for download using meta server.
 #[tauri::command]
 pub async fn fetch_available_java_versions() -> Result<Vec<AvailableJavaInfo>, String> {
-    use crate::core::java::download::fetch_adoptium_versions;
+    use crate::core::meta::MetaClient;
     
-    let versions = fetch_adoptium_versions()
-        .await
-        .map_err(|e| e.to_string())?;
+    let client = MetaClient::default();
     
-    Ok(versions.into_iter().map(|v| AvailableJavaInfo {
-        major: v.major,
-        name: v.name,
-        is_lts: v.is_lts,
-    }).collect())
+    // Fetch Azul Java versions from meta server
+    let versions = client.get_azul_java_versions().await
+        .map_err(|e| format!("Failed to fetch Java versions: {}", e))?;
+    
+    // Parse version strings like "java8", "java17", "java21"
+    let mut java_versions: Vec<AvailableJavaInfo> = versions
+        .iter()
+        .filter_map(|v| {
+            // Extract major version from strings like "java8", "java17"
+            let major = v.version.strip_prefix("java")
+                .and_then(|s| s.parse::<u32>().ok())?;
+            
+            // Determine LTS status (8, 11, 17, 21 are LTS)
+            let is_lts = matches!(major, 8 | 11 | 17 | 21);
+            
+            Some(AvailableJavaInfo {
+                major,
+                name: if is_lts {
+                    format!("Java {} (LTS)", major)
+                } else {
+                    format!("Java {}", major)
+                },
+                is_lts,
+            })
+        })
+        .collect();
+    
+    // Sort by major version descending (newest first)
+    java_versions.sort_by(|a, b| b.major.cmp(&a.major));
+    
+    // Remove duplicates (keep first occurrence = highest)
+    java_versions.dedup_by_key(|v| v.major);
+    
+    Ok(java_versions)
 }
 
 /// Download and install Java

@@ -226,7 +226,7 @@ export function UpdateView() {
             <div className="pt-4 border-t">
               <Button variant="link" className="h-auto p-0" asChild>
                 <a 
-                  href="https://github.com/DeisDev/OxideLauncher/releases" 
+                  href="https://github.com/OxideLauncher/OxideLauncher/releases" 
                   target="_blank" 
                   rel="noopener noreferrer"
                 >

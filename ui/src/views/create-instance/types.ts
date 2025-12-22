@@ -44,7 +44,6 @@ export interface MinecraftVersion {
   id: string;
   version_type: string;
   release_time: string;
-  url: string;
 }
 
 // Loader version info

@@ -27,11 +27,8 @@ pub mod profile;
 pub mod installer;
 pub mod processor;
 
-// Re-export commonly used items (only what's actually used elsewhere)
-pub use forge::get_forge_versions;
-pub use neoforge::get_neoforge_versions;
-pub use fabric::get_fabric_versions;
-pub use quilt::get_quilt_versions;
-pub use liteloader::get_liteloader_versions;
+// Re-export commonly used items
+// Note: Version listing is now handled by meta server (commands/versions.rs)
+// The get_*_versions functions in each module are used internally by installers
 pub use profile::{ModloaderProfile, LauncherType};
 pub use installer::{InstallProgress, install_modloader, get_installer};

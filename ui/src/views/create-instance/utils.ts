@@ -90,10 +90,12 @@ export const isLoaderCompatible = (loader: string, version: string): { compatibl
 
 export const getVersionTypeLabel = (type: string): string => {
   switch (type) {
-    case "release": return "release";
-    case "snapshot": return "snapshot";
-    case "old_beta": return "beta";
-    case "old_alpha": return "alpha";
+    case "release": return "Release";
+    case "snapshot": return "Snapshot";
+    case "experiment": return "Experiment";
+    case "old_beta": return "Beta";
+    case "old_alpha": return "Alpha";
+    case "old_snapshot": return "Pre-release";
     default: return type;
   }
 };
@@ -102,8 +104,10 @@ export const getVersionTypeColor = (type: string): string => {
   switch (type) {
     case "release": return "text-emerald-600 dark:text-emerald-400";
     case "snapshot": return "text-amber-600 dark:text-amber-400";
+    case "experiment": return "text-fuchsia-600 dark:text-fuchsia-400";
     case "old_beta": return "text-purple-600 dark:text-purple-400";
     case "old_alpha": return "text-red-600 dark:text-red-400";
+    case "old_snapshot": return "text-rose-600 dark:text-rose-400";
     default: return "text-muted-foreground";
   }
 };

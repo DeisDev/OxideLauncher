@@ -335,7 +335,9 @@ export function VersionTab({ instanceId }: VersionTabProps) {
         const versions = await invoke<MinecraftVersion[]>("get_minecraft_versions", {
           showReleases: true,
           showSnapshots: true,
-          showOld: false,
+          showBetas: false,
+          showAlphas: false,
+          showExperimental: false,
         });
         setAvailableVersions(versions.map(v => v.id));
         setSelectedNewVersion(component.version);

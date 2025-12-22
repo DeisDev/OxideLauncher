@@ -65,6 +65,7 @@ export function CustomTab({
   // Version filters
   const [showReleases, setShowReleases] = useState(true);
   const [showSnapshots, setShowSnapshots] = useState(false);
+  const [showExperimental, setShowExperimental] = useState(false);
   const [showBetas, setShowBetas] = useState(false);
   const [showAlphas, setShowAlphas] = useState(false);
 
@@ -75,7 +76,7 @@ export function CustomTab({
   // Load Minecraft versions on mount and when filters change
   useEffect(() => {
     loadMinecraftVersions();
-  }, [showReleases, showSnapshots, showBetas, showAlphas]);
+  }, [showReleases, showSnapshots, showExperimental, showBetas, showAlphas]);
 
   // Filter versions when search changes
   useEffect(() => {
@@ -113,23 +114,16 @@ export function CustomTab({
       const data = await invoke<MinecraftVersion[]>("get_minecraft_versions", {
         showReleases,
         showSnapshots,
-        showOld: showBetas || showAlphas,
+        showBetas,
+        showAlphas,
+        showExperimental,
       });
       
-      // Filter based on version type
-      let filtered = data;
-      if (!showReleases) {
-        filtered = filtered.filter(v => v.version_type !== "release");
-      }
-      if (!showSnapshots) {
-        filtered = filtered.filter(v => v.version_type !== "snapshot");
-      }
-      
-      setVersions(filtered);
-      setFilteredVersions(filtered);
-      if (filtered.length > 0 && !version) {
-        setVersion(filtered[0].id);
-        setName(filtered[0].id);
+      setVersions(data);
+      setFilteredVersions(data);
+      if (data.length > 0 && !version) {
+        setVersion(data[0].id);
+        setName(data[0].id);
       }
     } catch (error) {
       console.error("Failed to load versions:", error);
@@ -290,6 +284,7 @@ export function CustomTab({
               {[
                 { id: "releases", label: "Releases", checked: showReleases, onChange: setShowReleases },
                 { id: "snapshots", label: "Snapshots", checked: showSnapshots, onChange: setShowSnapshots },
+                { id: "experimental", label: "Experimental", checked: showExperimental, onChange: setShowExperimental },
                 { id: "betas", label: "Betas", checked: showBetas, onChange: setShowBetas },
                 { id: "alphas", label: "Alphas", checked: showAlphas, onChange: setShowAlphas },
               ].map(({ id, label, checked, onChange }) => (
@@ -348,21 +343,21 @@ export function CustomTab({
 
           {/* Loader Version */}
           {modLoader !== "None" && (
-            <Card className="flex-1 min-h-0 flex flex-col">
-              <CardHeader className="py-2 px-3 flex flex-row items-center justify-between">
+            <Card className="flex-1 min-h-0 flex flex-col overflow-hidden">
+              <CardHeader className="py-2 px-3 flex flex-row items-center justify-between flex-shrink-0">
                 <CardTitle className={cn("text-xs font-medium", getLoaderColor(modLoader))}>{modLoader} Version</CardTitle>
                 <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={loadLoaderVersions} disabled={loadingLoaderVersions}>
                   <RefreshCw className={cn("h-3 w-3", loadingLoaderVersions && "animate-spin")} />
                 </Button>
               </CardHeader>
-              <CardContent className="px-3 pb-2 pt-0 flex-1 min-h-0">
+              <CardContent className="px-3 pb-2 pt-0 flex-1 min-h-0 overflow-hidden">
                 {loadingLoaderVersions ? (
                   <p className="text-xs text-muted-foreground">Loading...</p>
                 ) : loaderVersions.length === 0 ? (
                   <p className="text-xs text-muted-foreground">No versions for {version}</p>
                 ) : (
-                  <ScrollArea className="h-20 lg:h-24">
-                    <div className="space-y-0.5">
+                  <ScrollArea className="h-full max-h-[200px]">
+                    <div className="space-y-0.5 pr-3">
                       {loaderVersions.map((v) => (
                         <button
                           key={v.version}
