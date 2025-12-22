@@ -42,9 +42,6 @@ Easily manage and install mods for multiple Minecraft installations. Inspired by
 
 Find the latest builds in the [Releases](https://github.com/OxideLauncher/OxideLauncher/releases) tab.
 
-*Website coming soon.*
-
-
 
 ## Build from Source
 
