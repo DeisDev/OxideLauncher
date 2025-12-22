@@ -19,6 +19,7 @@
 //! along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use crate::commands::state::AppState;
+use crate::core::files;
 use crate::core::rustwiz::{self, parser::read_mod_toml};
 use super::types::*;
 use tauri::State;
@@ -258,6 +259,12 @@ pub async fn delete_mod(
     instance_id: String,
     filename: String,
 ) -> Result<(), String> {
+    // Get recycle bin setting from config
+    let use_recycle_bin = {
+        let config = state.config.lock().unwrap();
+        config.files.use_recycle_bin
+    };
+    
     let instances = state.instances.lock().unwrap();
     let instance = instances.iter()
         .find(|i| i.id == instance_id)
@@ -268,9 +275,18 @@ pub async fn delete_mod(
     let disabled_path = mods_dir.join(format!("{}.disabled", filename));
     let metadata_path = mods_dir.join(format!("{}.metadata.json", filename));
     
-    let _ = std::fs::remove_file(mod_path);
-    let _ = std::fs::remove_file(disabled_path);
-    let _ = std::fs::remove_file(metadata_path);
+    let _ = files::delete_file(&mod_path, use_recycle_bin);
+    let _ = files::delete_file(&disabled_path, use_recycle_bin);
+    let _ = files::delete_file(&metadata_path, use_recycle_bin);
+    
+    // Also try to remove the .pw.toml metadata file from the .index folder
+    let index_dir = mods_dir.join(".index");
+    if let Some(stem) = mod_path.file_stem() {
+        // Try various potential slug formats
+        let stem_str = stem.to_string_lossy();
+        let potential_toml = index_dir.join(format!("{}.pw.toml", stem_str));
+        let _ = files::delete_file(&potential_toml, use_recycle_bin);
+    }
     
     Ok(())
 }

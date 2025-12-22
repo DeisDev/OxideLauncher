@@ -19,6 +19,7 @@
 //! along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use crate::commands::state::AppState;
+use crate::core::files;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use tauri::State;
@@ -100,6 +101,12 @@ pub async fn remove_jar_mod(
     instance_id: String,
     jar_name: String,
 ) -> Result<(), String> {
+    // Get recycle bin setting from config
+    let use_recycle_bin = {
+        let config = state.config.lock().unwrap();
+        config.files.use_recycle_bin
+    };
+    
     let instances = state.instances.lock().unwrap();
     let instance = instances.iter()
         .find(|i| i.id == instance_id)
@@ -108,9 +115,14 @@ pub async fn remove_jar_mod(
     let jar_path = instance.path.join("jarmods").join(&jar_name);
     
     if jar_path.exists() {
-        fs::remove_file(&jar_path)
+        files::delete_file(&jar_path, use_recycle_bin)
             .map_err(|e| format!("Failed to remove jar mod: {}", e))?;
-        tracing::info!("Removed jar mod: {:?}", jar_path);
+        
+        if use_recycle_bin {
+            tracing::info!("Moved jar mod to recycle bin: {:?}", jar_path);
+        } else {
+            tracing::info!("Permanently removed jar mod: {:?}", jar_path);
+        }
     }
     
     Ok(())
@@ -200,6 +212,12 @@ pub async fn remove_java_agent(
     instance_id: String,
     agent_file: String,
 ) -> Result<(), String> {
+    // Get recycle bin setting from config
+    let use_recycle_bin = {
+        let config = state.config.lock().unwrap();
+        config.files.use_recycle_bin
+    };
+    
     let instances = state.instances.lock().unwrap();
     let instance = instances.iter()
         .find(|i| i.id == instance_id)
@@ -208,7 +226,7 @@ pub async fn remove_java_agent(
     // Remove agent file
     let agent_path = instance.path.join("agents").join(&agent_file);
     if agent_path.exists() {
-        fs::remove_file(&agent_path)
+        files::delete_file(&agent_path, use_recycle_bin)
             .map_err(|e| format!("Failed to remove agent file: {}", e))?;
     }
     
@@ -278,6 +296,12 @@ pub async fn revert_minecraft_jar(
     state: State<'_, AppState>,
     instance_id: String,
 ) -> Result<(), String> {
+    // Get recycle bin setting from config
+    let use_recycle_bin = {
+        let config = state.config.lock().unwrap();
+        config.files.use_recycle_bin
+    };
+    
     let instances = state.instances.lock().unwrap();
     let instance = instances.iter()
         .find(|i| i.id == instance_id)
@@ -290,11 +314,12 @@ pub async fn revert_minecraft_jar(
     let marker_path = patches_dir.join("custom_jar.json");
     
     if custom_jar.exists() {
-        fs::remove_file(&custom_jar)
+        files::delete_file(&custom_jar, use_recycle_bin)
             .map_err(|e| format!("Failed to remove custom jar: {}", e))?;
     }
     
     if marker_path.exists() {
+        // Marker file is just metadata, can be permanently deleted
         fs::remove_file(&marker_path)
             .map_err(|e| format!("Failed to remove marker file: {}", e))?;
     }

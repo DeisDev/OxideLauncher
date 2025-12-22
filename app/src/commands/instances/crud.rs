@@ -18,10 +18,56 @@
 //! You should have received a copy of the GNU General Public License
 //! along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+use std::path::Path;
 use super::{CreateInstanceRequest, InstanceInfo, parse_mod_loader};
 use crate::commands::state::AppState;
+use crate::core::files;
 use crate::core::instance::{setup_instance, Instance};
 use tauri::State;
+
+/// Sanitize a name for use as a directory name.
+/// Allows alphanumeric characters, spaces, hyphens, and underscores.
+fn sanitize_name(name: &str) -> String {
+    name.chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' || c == ' ' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
+/// Generate a unique folder name for an instance based on user-provided name.
+/// If a folder with the name already exists, appends (1), (2), etc.
+fn generate_folder_name(name: &str, instances_dir: &Path) -> String {
+    let base_name = sanitize_name(name);
+    
+    // Handle empty name edge case
+    let base_name = if base_name.is_empty() {
+        "Instance".to_string()
+    } else {
+        base_name
+    };
+    
+    // Check if base name is available
+    if !instances_dir.join(&base_name).exists() {
+        return base_name;
+    }
+    
+    // Find next available suffix
+    let mut counter = 1;
+    loop {
+        let folder_name = format!("{} ({})", base_name, counter);
+        if !instances_dir.join(&folder_name).exists() {
+            return folder_name;
+        }
+        counter += 1;
+    }
+}
 
 #[tauri::command]
 pub async fn get_instances(state: State<'_, AppState>) -> Result<Vec<InstanceInfo>, String> {
@@ -50,8 +96,13 @@ pub async fn create_instance(
 ) -> Result<String, String> {
     let mod_loader = parse_mod_loader(&request.mod_loader_type, request.loader_version.clone());
     
+    // Generate unique folder name from user-provided name
+    let instances_dir = state.data_dir.join("instances");
+    let folder_name = generate_folder_name(&request.name, &instances_dir);
+    let instance_path = instances_dir.join(&folder_name);
+    
+    // UUID is still used for internal ID (for lookups, events, etc.)
     let instance_id = uuid::Uuid::new_v4().to_string();
-    let instance_path = state.data_dir.join("instances").join(&instance_id);
     
     // Create instance directory structure
     std::fs::create_dir_all(&instance_path)
@@ -115,6 +166,12 @@ pub async fn delete_instance(
     state: State<'_, AppState>,
     instance_id: String,
 ) -> Result<(), String> {
+    // Get recycle bin setting from config
+    let use_recycle_bin = {
+        let config = state.config.lock().unwrap();
+        config.files.use_recycle_bin
+    };
+    
     let mut instances = state.instances.lock().unwrap();
     
     // Find the instance to get its path before removing
@@ -123,9 +180,14 @@ pub async fn delete_instance(
         let instance_path = instance.path.clone();
         
         if instance_path.exists() {
-            std::fs::remove_dir_all(&instance_path)
+            files::delete_directory(&instance_path, use_recycle_bin)
                 .map_err(|e| format!("Failed to delete instance directory: {}", e))?;
-            tracing::info!("Deleted instance directory: {:?}", instance_path);
+            
+            if use_recycle_bin {
+                tracing::info!("Moved instance directory to recycle bin: {:?}", instance_path);
+            } else {
+                tracing::info!("Permanently deleted instance directory: {:?}", instance_path);
+            }
         }
     }
     
@@ -172,8 +234,14 @@ pub async fn copy_instance(
     let original = instances.iter().find(|i| i.id == instance_id)
         .ok_or_else(|| "Instance not found".to_string())?;
     
+    // Generate folder name based on original name with " (Copy)" suffix
+    let instances_dir = state.data_dir.join("instances");
+    let copy_name = format!("{} (Copy)", original.name);
+    let folder_name = generate_folder_name(&copy_name, &instances_dir);
+    let new_path = instances_dir.join(&folder_name);
+    
+    // UUID for internal ID
     let new_id = uuid::Uuid::new_v4().to_string();
-    let new_path = state.data_dir.join("instances").join(&new_id);
     
     // Copy directory
     let copy_options = fs_extra::dir::CopyOptions::new();
@@ -182,7 +250,7 @@ pub async fn copy_instance(
     
     let mut new_instance = original.clone();
     new_instance.id = new_id.clone();
-    new_instance.name = format!("{} (Copy)", original.name);
+    new_instance.name = copy_name;  // Display name includes (Copy)
     new_instance.path = new_path;
     new_instance.created_at = chrono::Utc::now();
     

@@ -79,6 +79,12 @@ pub async fn delete_world(
     instance_id: String,
     folder_name: String,
 ) -> Result<(), String> {
+    // Get recycle bin setting from config
+    let use_recycle_bin = {
+        let config = state.config.lock().unwrap();
+        config.files.use_recycle_bin
+    };
+    
     let instance = {
         let instances = state.instances.lock().unwrap();
         instances.iter()
@@ -88,7 +94,7 @@ pub async fn delete_world(
     };
     
     let saves_dir = instance.game_dir().join("saves");
-    world::delete_world(&saves_dir, &folder_name)
+    world::delete_world(&saves_dir, &folder_name, use_recycle_bin)
         .map_err(|e| e.to_string())
 }
 

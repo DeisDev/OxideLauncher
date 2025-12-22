@@ -31,12 +31,20 @@ pub async fn create_instance(
 ) -> Result<Instance> {
     // Generate instance directory name (sanitized)
     let dir_name = sanitize_name(&config.name);
+    
+    // Handle empty name edge case
+    let dir_name = if dir_name.is_empty() {
+        "Instance".to_string()
+    } else {
+        dir_name
+    };
+    
     let mut instance_path = instances_dir.join(&dir_name);
     
-    // Handle duplicate names
+    // Handle duplicate names with (N) suffix
     let mut counter = 1;
     while instance_path.exists() {
-        instance_path = instances_dir.join(format!("{}_{}", dir_name, counter));
+        instance_path = instances_dir.join(format!("{} ({})", dir_name, counter));
         counter += 1;
     }
 
@@ -77,7 +85,8 @@ pub async fn create_instance(
     Ok(instance)
 }
 
-/// Sanitize a name for use as a directory name
+/// Sanitize a name for use as a directory name.
+/// Allows alphanumeric characters, spaces, hyphens, and underscores.
 fn sanitize_name(name: &str) -> String {
     name.chars()
         .map(|c| {

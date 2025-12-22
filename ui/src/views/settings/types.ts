@@ -78,6 +78,7 @@ export interface Config {
   logging: LoggingConfig;
   api_keys: ApiKeys;
   debug: DebugConfig;
+  files: FilesConfig;
 }
 
 export interface JavaConfig {
@@ -160,6 +161,11 @@ export interface DebugConfig {
   verbose_logging: boolean;
   keep_natives_after_launch: boolean;
   pause_before_launch: boolean;
+}
+
+export interface FilesConfig {
+  /** Move deleted files to recycle bin instead of permanent deletion */
+  use_recycle_bin: boolean;
 }
 
 // Settings context type

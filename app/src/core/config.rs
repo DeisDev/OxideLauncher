@@ -73,6 +73,10 @@ pub struct Config {
     /// Debug settings for troubleshooting
     #[serde(default)]
     pub debug: DebugConfig,
+    
+    /// File management settings
+    #[serde(default)]
+    pub files: FilesConfig,
 }
 
 impl Default for Config {
@@ -90,6 +94,7 @@ impl Default for Config {
             logging: LoggingConfig::default(),
             api_keys: ApiKeys::default(),
             debug: DebugConfig::default(),
+            files: FilesConfig::default(),
         }
     }
 }
@@ -594,6 +599,24 @@ impl Default for DebugConfig {
             verbose_logging: false,
             keep_natives_after_launch: false,
             pause_before_launch: false,
+        }
+    }
+}
+
+/// File management configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilesConfig {
+    /// Move deleted files to recycle bin instead of permanent deletion.
+    /// When enabled (default), deletions are recoverable from the OS recycle bin.
+    /// When disabled, files are permanently deleted and cannot be recovered.
+    #[serde(default = "default_true")]
+    pub use_recycle_bin: bool,
+}
+
+impl Default for FilesConfig {
+    fn default() -> Self {
+        Self {
+            use_recycle_bin: true,
         }
     }
 }

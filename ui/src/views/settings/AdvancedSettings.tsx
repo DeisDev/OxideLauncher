@@ -19,7 +19,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 import { invoke } from "@tauri-apps/api/core";
-import { FolderOpen } from "lucide-react";
+import { FolderOpen, AlertTriangle } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,6 +27,7 @@ import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useSettings } from "./context";
 
 // Logging Settings Sub-tab
@@ -343,12 +344,65 @@ function NetworkSettings() {
   );
 }
 
+// Files Settings Sub-tab
+function FilesSettings() {
+  const { config, setConfig } = useSettings();
+  if (!config) return null;
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>File Deletion</CardTitle>
+          <CardDescription>
+            Configure how files are deleted from the launcher.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="useRecycleBin">Use Recycle Bin</Label>
+              <p className="text-sm text-muted-foreground">
+                Move deleted files to the recycle bin instead of permanently deleting them.
+                This allows you to recover accidentally deleted instances, mods, or worlds.
+              </p>
+            </div>
+            <Switch
+              id="useRecycleBin"
+              checked={config.files?.use_recycle_bin ?? true}
+              onCheckedChange={(checked) =>
+                setConfig({
+                  ...config,
+                  files: { ...config.files, use_recycle_bin: checked },
+                })
+              }
+            />
+          </div>
+
+          {!(config.files?.use_recycle_bin ?? true) && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>Warning: Permanent Deletion Enabled</AlertTitle>
+              <AlertDescription>
+                When recycle bin is disabled, any files you delete (instances, mods, worlds, etc.) 
+                will be <strong>permanently deleted</strong> and <strong>cannot be recovered</strong>.
+                This includes all saves, configurations, and game data.
+              </AlertDescription>
+            </Alert>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 // Main Advanced Settings Component
 export function AdvancedSettings() {
   return (
     <Tabs defaultValue="logging" className="w-full">
       <TabsList className="mb-4">
         <TabsTrigger value="logging">Logging</TabsTrigger>
+        <TabsTrigger value="files">Files</TabsTrigger>
         <TabsTrigger value="api">API Keys</TabsTrigger>
         <TabsTrigger value="commands">Commands</TabsTrigger>
         <TabsTrigger value="network">Network</TabsTrigger>
@@ -356,6 +410,10 @@ export function AdvancedSettings() {
 
       <TabsContent value="logging">
         <LoggingSettings />
+      </TabsContent>
+
+      <TabsContent value="files">
+        <FilesSettings />
       </TabsContent>
 
       <TabsContent value="api">

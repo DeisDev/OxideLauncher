@@ -74,6 +74,9 @@ image = "0.25"
 # Process management
 which = "7"
 
+# Recycle bin / trash support
+trash = "5"
+
 [build-dependencies]
 tauri-build = { version = "2.1", features = [] }
 

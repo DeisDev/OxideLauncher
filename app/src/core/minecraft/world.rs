@@ -25,6 +25,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 
 use crate::core::error::{OxideError, Result};
+use crate::core::files;
 
 /// Represents a Minecraft game type/mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -180,7 +181,7 @@ pub fn list_worlds(saves_dir: &Path) -> Vec<World> {
 }
 
 /// Delete a world by folder name
-pub fn delete_world(saves_dir: &Path, folder_name: &str) -> Result<()> {
+pub fn delete_world(saves_dir: &Path, folder_name: &str, use_recycle_bin: bool) -> Result<()> {
     let world_path = saves_dir.join(folder_name);
     
     if !world_path.exists() {
@@ -205,8 +206,13 @@ pub fn delete_world(saves_dir: &Path, folder_name: &str) -> Result<()> {
         )));
     }
     
-    info!("Deleting world: {:?}", world_path);
-    fs::remove_dir_all(&world_path)?;
+    if use_recycle_bin {
+        info!("Moving world to recycle bin: {:?}", world_path);
+    } else {
+        info!("Permanently deleting world: {:?}", world_path);
+    }
+    
+    files::delete_directory(&world_path, use_recycle_bin)?;
     
     Ok(())
 }

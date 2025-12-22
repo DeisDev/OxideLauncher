@@ -1,4 +1,4 @@
-//! Core backend module exports and re-exports.
+//! Meta server client for PrismLauncher-format metadata.
 //!
 //! Oxide Launcher — A Rust-based Minecraft launcher
 //! Copyright (C) 2025 Oxide Launcher contributors
@@ -18,17 +18,8 @@
 //! You should have received a copy of the GNU General Public License
 //! along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-pub mod config;
-pub mod instance;
-pub mod accounts;
-pub mod minecraft;
-pub mod modplatform;
-pub mod modloaders;
-pub mod download;
-pub mod launch;
-pub mod java;
-pub mod error;
-pub mod rustwiz;
-pub mod logging;
-pub mod meta;
-pub mod files;
+mod types;
+mod client;
+
+pub use types::*;
+pub use client::MetaClient;
