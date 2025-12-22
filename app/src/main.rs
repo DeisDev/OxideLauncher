@@ -206,6 +206,7 @@ fn main() {
             commands::accounts::remove_account,
             commands::accounts::get_account_for_launch,
             commands::accounts::is_microsoft_configured,
+            commands::accounts::has_verified_ownership,
             // Skin management commands
             commands::accounts::get_player_profile,
             commands::accounts::change_skin_url,

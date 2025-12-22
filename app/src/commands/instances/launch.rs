@@ -45,6 +45,16 @@ pub async fn launch_instance(
     
     let mode = launch_mode.as_deref().unwrap_or("normal");
     
+    // Load config first to get accounts file path
+    let config = Config::load().unwrap_or_default();
+    let accounts_file = config.accounts_file();
+    
+    // Check ownership verification before allowing launch
+    let account_list = AccountList::load(&accounts_file).unwrap_or_default();
+    if !account_list.is_ownership_verified() {
+        return Err("You must sign in with a Microsoft account that owns Minecraft before playing. Go to Accounts to sign in and verify game ownership.".to_string());
+    }
+    
     // Find instance
     let instance = {
         let instances = state.instances.lock().unwrap();
@@ -53,9 +63,6 @@ pub async fn launch_instance(
             .ok_or_else(|| "Instance not found".to_string())?
             .clone()
     };
-    
-    // Load config
-    let config = Config::load().unwrap_or_default();
     
     // Determine launch features based on mode and instance settings
     let mut features = LaunchFeatures::normal();
@@ -75,8 +82,6 @@ pub async fn launch_instance(
         if mode == "offline" {
             tracing::info!("Launching in offline mode");
             // Use the active account name but as offline
-            let accounts_file = config.accounts_file();
-            let account_list = AccountList::load(&accounts_file).unwrap_or_default();
             if let Some(active_account) = account_list.get_active() {
                 AuthSession::offline(&active_account.username)
             } else {
@@ -86,9 +91,6 @@ pub async fn launch_instance(
             tracing::info!("Launching in demo mode");
             AuthSession::demo()
         } else {
-            let accounts_file = config.accounts_file();
-            let account_list = AccountList::load(&accounts_file).unwrap_or_default();
-            
             if let Some(active_account) = account_list.get_active() {
                 tracing::info!("Using account: {} ({})", active_account.username, active_account.account_type.name());
                 AuthSession::from_account(active_account)

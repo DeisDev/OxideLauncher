@@ -117,7 +117,7 @@ pub async fn get_accounts(state: State<'_, AppState>) -> Result<Vec<AccountInfo>
     Ok(info)
 }
 
-/// Add an offline account
+/// Add an offline account (requires ownership verification first)
 #[tauri::command]
 pub async fn add_offline_account(
     state: State<'_, AppState>,
@@ -132,6 +132,11 @@ pub async fn add_offline_account(
 
     // Load existing accounts
     let mut account_list = AccountList::load(&accounts_file).unwrap_or_default();
+
+    // Check ownership verification - must have verified game ownership first
+    if !account_list.is_ownership_verified() {
+        return Err("You must sign in with a Microsoft account that owns Minecraft before creating offline accounts. This verifies game ownership.".to_string());
+    }
 
     // Check for duplicate username
     if account_list.has_username(&username) {
@@ -324,6 +329,9 @@ pub async fn poll_microsoft_login(
             };
 
             let mut account_list = AccountList::load(&accounts_file).unwrap_or_default();
+
+            // Mark ownership as verified - Microsoft account verified game ownership
+            account_list.set_ownership_verified();
 
             // Check for duplicate UUID
             let existing_idx = account_list
@@ -583,6 +591,17 @@ pub async fn is_microsoft_configured(state: State<'_, AppState>) -> Result<bool,
     
     // Fall back to hardcoded ID
     Ok(MSA_CLIENT_ID != "YOUR_AZURE_CLIENT_ID_HERE")
+}
+
+/// Check if game ownership has been verified via Microsoft account
+#[tauri::command]
+pub async fn has_verified_ownership(state: State<'_, AppState>) -> Result<bool, String> {
+    let config = state.config.lock().unwrap();
+    let accounts_file = config.accounts_file();
+    drop(config);
+
+    let account_list = AccountList::load(&accounts_file).unwrap_or_default();
+    Ok(account_list.is_ownership_verified())
 }
 
 // =============================================================================

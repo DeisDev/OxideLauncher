@@ -74,6 +74,7 @@ export function AccountsView() {
   const [error, setError] = useState<string | null>(null);
   const [refreshingAccount, setRefreshingAccount] = useState<string | null>(null);
   const [isMsaConfigured, setIsMsaConfigured] = useState(false);
+  const [ownershipVerified, setOwnershipVerified] = useState(false);
 
   // Microsoft login state
   const [deviceCode, setDeviceCode] = useState<DeviceCodeInfo | null>(null);
@@ -87,6 +88,7 @@ export function AccountsView() {
   useEffect(() => {
     loadAccounts();
     checkMsaConfigured();
+    checkOwnershipVerified();
 
     // Listen for auth progress events
     const unlisten = listen<AuthProgressEventType>("auth_progress", (event) => {
@@ -99,6 +101,8 @@ export function AccountsView() {
         setMsaStatus(`Completed: ${data.data.step}`);
       } else if (data.type === "Completed") {
         setMsaStatus(`Welcome, ${data.data.username}!`);
+        // Ownership is verified when Microsoft login completes
+        setOwnershipVerified(true);
       } else if (data.type === "Failed") {
         setMsaError(`${data.data.step}: ${data.data.error}`);
       }
@@ -134,6 +138,15 @@ export function AccountsView() {
       setIsMsaConfigured(configured);
     } catch (error) {
       console.error("Failed to check MSA configuration:", error);
+    }
+  };
+
+  const checkOwnershipVerified = async () => {
+    try {
+      const verified = await invoke<boolean>("has_verified_ownership");
+      setOwnershipVerified(verified);
+    } catch (error) {
+      console.error("Failed to check ownership verification:", error);
     }
   };
 
@@ -445,7 +458,11 @@ export function AccountsView() {
           {/* Offline Account Button */}
           <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
             <DialogTrigger asChild>
-              <Button variant="outline">
+              <Button 
+                variant="outline"
+                disabled={!ownershipVerified}
+                title={!ownershipVerified ? "Sign in with Microsoft first to verify game ownership" : undefined}
+              >
                 <UserPlus className="mr-2 h-4 w-4" /> Add Offline Account
               </Button>
             </DialogTrigger>
@@ -497,6 +514,18 @@ export function AccountsView() {
           </Dialog>
         </div>
       </div>
+
+      {/* Ownership not verified warning */}
+      {!ownershipVerified && (
+        <Alert className="mb-4 border-amber-500/50 bg-amber-500/10">
+          <AlertCircle className="h-4 w-4 text-amber-500" />
+          <AlertDescription className="text-amber-700 dark:text-amber-300">
+            <strong>Sign in required:</strong> You must sign in with a Microsoft account that owns 
+            Minecraft Java Edition before you can play or create offline accounts. This is required
+            to verify game ownership.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* MSA not configured warning */}
       {!isMsaConfigured && (

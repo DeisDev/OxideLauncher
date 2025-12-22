@@ -21,14 +21,51 @@
 #![allow(dead_code)] // List management will be used as features are completed
 
 use std::path::PathBuf;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use crate::core::error::Result;
 use super::Account;
 
-/// List of all accounts
+/// Stored accounts file format (for JSON serialization)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AccountsFile {
+    /// File format version for future migrations
+    #[serde(default = "default_version")]
+    version: u32,
+    /// Whether game ownership has been verified via Microsoft account
+    #[serde(default)]
+    ownership_verified: bool,
+    /// When ownership was first verified
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ownership_verified_at: Option<DateTime<Utc>>,
+    /// All accounts
+    accounts: Vec<Account>,
+}
+
+fn default_version() -> u32 {
+    1
+}
+
+impl Default for AccountsFile {
+    fn default() -> Self {
+        Self {
+            version: 1,
+            ownership_verified: false,
+            ownership_verified_at: None,
+            accounts: Vec::new(),
+        }
+    }
+}
+
+/// List of all accounts with ownership verification state
 #[derive(Debug, Clone)]
 pub struct AccountList {
     /// All accounts
     pub accounts: Vec<Account>,
+    /// Whether game ownership has been verified via Microsoft account
+    ownership_verified: bool,
+    /// When ownership was first verified
+    ownership_verified_at: Option<DateTime<Utc>>,
 }
 
 impl AccountList {
@@ -36,31 +73,80 @@ impl AccountList {
     pub fn new() -> Self {
         Self {
             accounts: Vec::new(),
+            ownership_verified: false,
+            ownership_verified_at: None,
         }
     }
 
-    /// Load accounts from file
+    /// Load accounts from file (handles both old and new format)
     pub fn load(accounts_file: &PathBuf) -> Result<Self> {
         if accounts_file.exists() {
             let content = std::fs::read_to_string(accounts_file)?;
+            
+            // Try to parse as new format first
+            if let Ok(file) = serde_json::from_str::<AccountsFile>(&content) {
+                return Ok(Self {
+                    accounts: file.accounts,
+                    ownership_verified: file.ownership_verified,
+                    ownership_verified_at: file.ownership_verified_at,
+                });
+            }
+            
+            // Fall back to old format (just Vec<Account>)
             let accounts: Vec<Account> = serde_json::from_str(&content)?;
-            Ok(Self { accounts })
+            Ok(Self { 
+                accounts,
+                ownership_verified: false,
+                ownership_verified_at: None,
+            })
         } else {
             Ok(Self::new())
         }
     }
 
-    /// Save accounts to file
+    /// Save accounts to file (uses new format)
     pub fn save(&self, accounts_file: &PathBuf) -> Result<()> {
         // Ensure parent directory exists
         if let Some(parent) = accounts_file.parent() {
             std::fs::create_dir_all(parent)?;
         }
 
-        let content = serde_json::to_string_pretty(&self.accounts)?;
+        let file = AccountsFile {
+            version: 1,
+            ownership_verified: self.ownership_verified,
+            ownership_verified_at: self.ownership_verified_at,
+            accounts: self.accounts.clone(),
+        };
+
+        let content = serde_json::to_string_pretty(&file)?;
         std::fs::write(accounts_file, content)?;
         
         Ok(())
+    }
+
+    /// Check if game ownership has been verified
+    pub fn is_ownership_verified(&self) -> bool {
+        self.ownership_verified
+    }
+
+    /// Mark ownership as verified (called when Microsoft account verifies game ownership)
+    pub fn set_ownership_verified(&mut self) {
+        if !self.ownership_verified {
+            self.ownership_verified = true;
+            self.ownership_verified_at = Some(Utc::now());
+        }
+    }
+
+    /// Get when ownership was verified
+    pub fn ownership_verified_at(&self) -> Option<DateTime<Utc>> {
+        self.ownership_verified_at
+    }
+
+    /// Check if there are any Microsoft accounts with valid game ownership
+    pub fn has_microsoft_account(&self) -> bool {
+        self.accounts
+            .iter()
+            .any(|a| matches!(a.account_type, super::AccountType::Microsoft))
     }
 
     /// Get an account by ID
